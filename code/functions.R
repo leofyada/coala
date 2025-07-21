@@ -15,7 +15,7 @@ import_raw_data <- function() {
   # Loop through each folder name in raw_dirs
   for (folder in raw_dirs) {
     # Skip "LAC" folder (it has no CSV)
-    if (folder != "LAC") {
+    if (!(folder %in% c("LAC", "BRB", "TTO"))) {
       # Construct path to CSV file
       csv_path <- file.path(base_dir, folder, paste0(folder, ".csv"))
       
@@ -39,4 +39,41 @@ import_raw_data <- function() {
   return(result)
 }
 
+#---------------------------
+#- CLEANING FILES FUNCTION - 
+#---------------------------
+
+# 1. Function to clean dataframes
+clean_raw_data <- function(df_list) {
+  
+  # Initialize an empty data frame to accumulate results
+  df_clean <- data.frame()
+  
+  # Loop over each data frame in the input list
+  for(df in df_list){
+    
+    # Extract country-level identifiers from the first row
+    # Then group by these identifiers and summarise all numeric columns
+    df <- df %>% 
+      mutate(
+        ADM0_EN = as.character(df[1, 1]),   # Country name from first row, first column
+        ADM0_PCODE = as.character(df[1, 2]) # Country code from first row, second column
+      ) %>% 
+      group_by(ADM0_EN, ADM0_PCODE) %>%
+      summarise(
+        across(where(is.numeric), \(x) sum(x, na.rm = TRUE)),  # Sum all numeric columns
+        .groups = "drop"  # Drop grouping after summarise
+      )
+    
+    # Append the cleaned and summarised df to the master data frame
+    df_clean <- bind_rows(df_clean, df)
+  }
+  
+  # Drop unused location code columns, if present
+  df_clean <- df_clean %>% 
+    select(-c(cod_canton, codigo_distrito, codigo_departamento))
+  
+  # Return the cleaned and aggregated data
+  return(df_clean)
+}
 

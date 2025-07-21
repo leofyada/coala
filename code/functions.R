@@ -1,29 +1,42 @@
-#-------------
-#- FUNCTIONS - 
-#-------------
+#----------------------------
+#- IMPORTING FILES FUNCTION - 
+#----------------------------
 
-# Getting the raw data directory
-dirs <- list.dirs(here("raw_data"), recursive = FALSE, full.names = FALSE)
-# Function to import csv files from directories
-data_import_fun <- function(){
-  # Creating an empty list to receive dataframes
+# 1. Get the names of subdirectories in "raw_data"
+raw_dirs <- list.dirs(here::here("raw_data"), recursive = FALSE, full.names = FALSE)
+
+# 2. Function to import CSV files from each subdirectory
+import_raw_data <- function() {
+  # Create empty list to store imported data frames
   result <- list()
-  for(dir in dirs){
-    # Getting the directory with here function
-    directory = here("raw_data")
-    # LAC doesn't have any csv file
-    if(dir != "LAC"){
-      # Establishing directory path to csv files
-      path = glue("{directory}/{dir}/{dir}.csv")
-      # Creating a name for dataframe
-      df_name <- glue("df_{dir}")
-      # Reading csv files
-      df_data <- data.table::fread(path, fill=TRUE)
-      # Inserting dataframe in list
-      result[[df_name]] <- df_data
+  
+  # Define base directory path
+  base_dir <- here::here("raw_data")
+  
+  # Loop through each folder name in raw_dirs
+  for (folder in raw_dirs) {
+    # Skip "LAC" folder (it has no CSV)
+    if (folder != "LAC") {
+      # Construct path to CSV file
+      csv_path <- file.path(base_dir, folder, paste0(folder, ".csv"))
+      
+      # Define name for the data frame (e.g., df_ABC)
+      df_name <- paste0("df_", folder)
+      
+      # Check if file exists before reading (optional but safer)
+      if (file.exists(csv_path)) {
+        # Read CSV using fread (handles large files efficiently)
+        df <- data.table::fread(csv_path, fill = TRUE, encoding="Latin-1")
+        
+        # Store in the result list
+        result[[df_name]] <- df
+      } else {
+        warning(glue::glue("CSV file not found: {csv_path}"))
+      }
     }
   }
-  # Returning list of data
+  
+  # Return the list of data frames
   return(result)
 }
 

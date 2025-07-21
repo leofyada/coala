@@ -3,17 +3,18 @@
 #----------------------------
 
 # 1. Get the names of subdirectories in "raw_data"
-raw_dirs <- list.dirs(here::here("raw_data"), recursive = FALSE, full.names = FALSE)
+raw_dirs <- list.dirs(here::here("raw_data", "BID"), recursive = FALSE, full.names = FALSE)
 # 2. Function to import CSV files from each subdirectory
 import_raw_data <- function() {
   # Create empty list to store imported data frames
   result <- list()
   
   # Define base directory path
-  base_dir <- here::here("raw_data")
+  base_dir <- here::here("raw_data", "BID")
   
   # Loop through each folder name in raw_dirs
   for (folder in raw_dirs) {
+    
     # Skip "LAC" folder (it has no CSV)
     if (!(folder %in% c("LAC", "BRB", "TTO"))) {
       # Construct path to CSV file

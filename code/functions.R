@@ -77,4 +77,28 @@ clean_raw_data <- function(df_list) {
   # Return the cleaned and aggregated data
   return(df_clean)
 }
+# 2. Function to prepare final dataset 
+prepare_final_data <- function(df_bid, df_p1) {
+  
+  # Reshape df_bid from wide to long format
+  df_bid <- reshape2::melt(data = df_bid, id.vars = c("country_acronym"))
+  colnames(df_bid) <- c("country_acronym", "variable", "bid_value")
+  
+  # Reshape df_p1 from wide to long format, dropping the 'country' column if present
+  df_p1 <- reshape2::melt(data = df_p1 %>% dplyr::select(-country), id.vars = c("country_acronym"))
+  colnames(df_p1) <- c("country_acronym", "variable", "p1_value")
+  
+  # Merge both data frames by country and variable
+  # If bid_value is missing, use p1_value; otherwise use bid_value
+  df_final <- df_p1 %>% 
+    dplyr::left_join(y = df_bid, by = c("country_acronym", "variable")) %>% 
+    dplyr::mutate(final_value = ifelse(is.na(bid_value), p1_value, bid_value)) %>% 
+    dplyr::select(-c(p1_value, bid_value))
+  
+  # Reshape back to wide format: one row per country, variables as columns
+  df_final <- reshape2::dcast(data = df_final, formula = country_acronym ~ variable, value.var = "final_value")
+  
+  return(df_final)
+}
+
 

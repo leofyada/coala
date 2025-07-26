@@ -1,0 +1,1353 @@
+```{r set up}
+library(readxl)        # import .xlsx files
+library(tidyverse)     # clean and analyse data
+library(dplyr) 
+library(tibble)
+library(here)
+```
+
+```{r import}
+df <- readxl::read_xlsx(path = here("raw_data", "20250725_base_final.xlsx"))
+```
+
+```{r select columns}
+df <- df |> 
+
+select (country, subregion, number_of_schools,number_of_rural_schools, source_number_of_schools, number_of_students, source_number_of_students, number_of_students_primary, source_number_of_students_primary, number_of_students_secondary, source_number_of_students_secondary, number_of_teachers, source_number_of_teachers,  primary_schools_cima, secondary_schools_cima, source_cima_schools, student_primary_databank_worldbank, student_secondary_databank_worldbank, source_databank_worldbank_students, avg_student_per_school, number_of_classroom, itu_pop_below_50, itu_pop_above_50, itu_pop_between_25_50, source_itu, teacher_monthly_salary, source_teacher_price, reference_satellite_link_price,  reference_fiber_link_price, reference_fiber_link_inferior_price, reference_fiber_link_superior_price, reference_access_point_price, reference_access_point_inferior_price, reference_access_point_superior_price, reference_firewall_price, reference_firewall_inferior_price, reference_firewall_superior_price, reference_nobreak_price, reference_nobreak_inferior_price, reference_nobreak_superior_price, reference_switch_price, reference_switch_inferior_price, reference_switch_superior_price, reference_rack_price, reference_rack_inferior_price, reference_rack_superior_price, reference_multimedia_projector_price, reference_multimedia_projector_inferior_price, reference_multimedia_projector_superior_price, reference_headphone_price, reference_headphone_inferior_price, reference_headphone_superior_price, reference_charging_cart_price, reference_charging_cart_inferior_price, reference_charging_cart_superior_price, reference_desktop_price, reference_desktop_inferior_price, reference_desktop_superior_price, reference_tablet_price, reference_tablet_inferior_price, reference_tablet_superior_price, reference_laptop_price, reference_laptop_inferior_price, reference_laptop_superior_price, reference_cloudbook_price, reference_cloudbook_inferior_price, reference_cloudbook_superior_price, reference_price_teaching_learning,  reference_price_management_platform,  reference_teacher_price, reference_consultant_price, number_of_graduated_teacher, number_of_schools_satellite, number_of_schools_fiber_link, number_of_schools_fiber_expansion, type_capex, type_opex, parameter_fiber_exp, parameter_access_point, parameter_firewall, parameter_nobreak, parameter_switch, parameter_rack, parameter_min_scenario_primary, parameter_min_scenario_secondary, parameter_required_device_min_scenario, parameter_mild_scenario_primary, parameter_mild_scenario_secondary, parameter_required_device_mild_scenario, parameter_comprehensive_primary, parameter_comprehensive_secondary, parameter_required_device_comprehensive_scenario, parameter_device_per_teacher, parameter_device_per_school, parameter_total_device_min_scenario, parameter_charging_cart_min_scenario, parameter_headphone_min_scenario, parameter_total_device_mild_scenario, parameter_charging_cart_mild_scenario, parameter_headphone_mild_scenario, parameter_total_comprehensive_scenario, parameter_charging_cart_comprehensive_scenario, parameter_headphone_comprehensive_scenario, parameter_multimedia_projector, parameter_diagnostic_tool_development, parameter_diagnostic_tool_hosting, parameter_content_production_1, parameter_content_production_2, parameter_platform_development, parameter_platform_license, parameter_platform_maintenance, parameter_teacher_class, parameter_specialist_trainers, parameter_course_for_trainers, parameter_central_team_min, parameter_central_team_max, parameter_regional_team, parameter_local_team, parameter_platform, reference_fiber_exp_inferior_price, reference_fiber_exp_superior_price)
+```
+
+```{r redefinecol}
+df <- df |>
+  # 1. Renomeia a coluna específica primeiro
+  rename(reference_fiber_exp_price = reference_fiber_exp_superior_price) |>
+
+  # 2. Remove todas as colunas que contenham "_inferior_price" ou "_superior_price"
+  select(-contains(c("_inferior_price", "_superior_price"))) |>
+
+  # 3. Adiciona as novas colunas de referência
+  mutate(
+    # Referências para Ferramentas de Diagnóstico
+    reference_price_diagnostic_tool_development = reference_teacher_price * 25,
+    reference_price_diagnostic_tool_hosting = reference_teacher_price * 0.5 * type_opex,
+
+    # Referências para Plataforma LMS
+    reference_price_lms_platform_development = reference_teacher_price * 3 * type_capex,
+    reference_price_lms_platform_maintenance = reference_teacher_price * type_opex,
+
+    # Referências para Produção de Conteúdo e Treinamento
+    reference_price_content_production60 = reference_teacher_price * 5 * 3, # Esta é a base, multiplicadores vêm do df
+    reference_price_training_design = 600000,
+    reference_price_trainers60 = 2 * reference_teacher_price, # Esta é a base, multiplicador vem do df
+
+    # Multiplicadores de Cenário
+    reference_multiplier_inperson = 5,
+    reference_multiplier40h = 0.7
+  ) |>
+  # Altera o valor da coluna parameter_regional_team para 1/50
+  mutate(
+    parameter_regional_team = 1/50
+  ) |>
+  mutate(reference_fiber_link_price = reference_fiber_link_price * 200,
+    reference_price_teaching_learning = case_when(
+      number_of_students > 1000000 ~ reference_price_teaching_learning, # Países com mais de 1 milhão: mesmo preço
+      number_of_students >= 100000 & number_of_students <= 1000000 ~ reference_price_teaching_learning * 1.5, # Entre 100 mil e 1 milhão: 1.5X
+      number_of_students < 100000 ~ reference_price_teaching_learning * 3, # Menos de 100 mil: 3X
+    )
+  ) |>
+  # Define os valores de parameter_teaching_learning e parameter_management para 1
+  mutate(
+    parameter_teaching_learning = 1,
+    parameter_management = 1,
+    parameter_multimedia_projector = 1, 
+     parameter_local_team_urban = 1/5,
+    parameter_local_team_rural = 1/3,
+    
+  ) |>
+  select(-parameter_platform)
+```
+
+```{r reordercol}
+
+df <- df |>
+  mutate(
+    reference_price_diagnostic_tool = reference_price_diagnostic_tool_development + 
+    reference_price_diagnostic_tool_hosting,
+    reference_price_lms = reference_price_lms_platform_development +
+    reference_price_lms_platform_maintenance
+    ) |>
+  # Reordena as colunas para incluir as novas referências perto das existentes
+  select(
+    country, subregion, number_of_schools, source_number_of_schools, number_of_rural_schools,
+    number_of_students, source_number_of_students, number_of_students_primary,
+    source_number_of_students_primary, number_of_students_secondary,
+    source_number_of_students_secondary, number_of_teachers, source_number_of_teachers,
+    primary_schools_cima, secondary_schools_cima, source_cima_schools,
+    student_primary_databank_worldbank, student_secondary_databank_worldbank,
+    source_databank_worldbank_students, avg_student_per_school,number_of_rural_schools, number_of_classroom,
+    itu_pop_below_50, itu_pop_above_50, itu_pop_between_25_50, source_itu,
+    teacher_monthly_salary, source_teacher_price,
+
+    # --- Colunas de Referência (agrupadas e ordenadas) ---
+    reference_satellite_link_price,
+    reference_fiber_link_price,
+    reference_fiber_exp_price,
+    reference_access_point_price,
+    reference_firewall_price,
+    reference_nobreak_price,
+    reference_switch_price,
+    reference_rack_price,
+    reference_multimedia_projector_price,
+    reference_headphone_price,
+    reference_charging_cart_price,
+    reference_desktop_price,
+    reference_tablet_price,
+    reference_laptop_price,
+    reference_cloudbook_price,
+    reference_price_teaching_learning,
+    reference_price_management_platform,
+    reference_consultant_price,
+    reference_teacher_price,
+
+    # Novas colunas de referência inseridas aqui, em ordem lógica
+    number_of_graduated_teacher,
+    reference_price_diagnostic_tool,
+    reference_price_lms,
+    reference_price_content_production60,
+    reference_price_training_design,
+    reference_price_trainers60,
+    reference_multiplier_inperson,
+    reference_multiplier40h,
+    # --- Fim das colunas de Referência ---
+
+   type_opex, parameter_fiber_exp, parameter_access_point,
+    parameter_firewall, parameter_nobreak, parameter_switch, parameter_rack,
+    parameter_min_scenario_primary, parameter_min_scenario_secondary, parameter_mild_scenario_primary,
+    parameter_mild_scenario_secondary,
+    parameter_comprehensive_primary, parameter_comprehensive_secondary, parameter_device_per_teacher,
+    parameter_device_per_school,
+    parameter_multimedia_projector,
+    parameter_teacher_class,  parameter_teaching_learning, 
+    parameter_management,parameter_central_team_min,
+    parameter_central_team_max, parameter_regional_team,   parameter_local_team_urban,
+    parameter_local_team_rural
+  )
+```
+
+```{r dimcal}
+df <- df |>
+  mutate(
+    # Fiber Expansion
+    dim_1_price_fiber_exp = itu_pop_between_25_50 * number_of_schools * parameter_fiber_exp * reference_fiber_exp_price,
+
+    # Satellite Service
+    dim_1_price_satellite_service = itu_pop_above_50 * number_of_schools * reference_satellite_link_price * type_opex,
+
+    # Fiber link
+    dim_1_price_fiber_link = itu_pop_below_50 * number_of_schools * (avg_student_per_school) * (reference_fiber_link_price/200) * type_opex,
+
+    # Access Point
+    dim_1_price_access_point = (((number_of_students_primary/ 25) + primary_schools_cima * 3)  + ((number_of_students_secondary/ 35) + secondary_schools_cima * 3)) * parameter_access_point * reference_access_point_price,
+
+    # Firewall
+    dim_1_price_firewall = number_of_schools * parameter_firewall * reference_firewall_price,
+
+    # Nobreak
+    dim_1_price_nobreak = number_of_schools * parameter_nobreak * reference_nobreak_price,
+
+    # Switch
+    dim_1_price_switch = number_of_schools * parameter_switch * reference_switch_price,
+
+    # Rack 6U/8U
+    dim_1_price_rack = number_of_schools * parameter_rack * reference_rack_price,
+
+    # ==== Cálculos para Devices (Min, Mild, Comprehensive Scenarios) ====
+
+    # Device per Students - Min Scenario
+    dim_2_price_device_student_min = (number_of_students_primary * parameter_min_scenario_primary * reference_tablet_price) +
+                                     (number_of_students_secondary * parameter_min_scenario_secondary * reference_cloudbook_price),
+
+    # Device per Students - Mild Scenario
+    dim_2_price_device_student_mild = (number_of_students_primary * parameter_mild_scenario_primary * reference_tablet_price) +
+                                      (number_of_students_secondary * parameter_mild_scenario_secondary * reference_cloudbook_price),
+
+    # Devices per Students - Comprehensive Scenario
+    dim_2_price_device_student_comprehensive = (number_of_students_primary * parameter_comprehensive_primary * reference_tablet_price) +
+                                               (number_of_students_secondary * parameter_comprehensive_secondary * reference_cloudbook_price),
+
+    # Devices per teacher
+    dim_2_price_device_teacher = number_of_teachers * parameter_device_per_teacher * reference_laptop_price,
+
+    # Devices per school
+    dim_2_price_device_school = number_of_schools * parameter_device_per_school * reference_desktop_price,
+
+    # Charging Cart
+    dim_2_price_charging_cart_min = ((number_of_students_primary * parameter_min_scenario_primary) + (number_of_students_secondary * parameter_min_scenario_secondary)) / 30 * reference_charging_cart_price,
+
+    dim_2_price_charging_cart_mild = ((number_of_students_primary * parameter_mild_scenario_primary) + (number_of_students_secondary * parameter_mild_scenario_secondary)) / 30 * reference_charging_cart_price,
+
+    dim_2_price_charging_cart_comprehensive = ((number_of_students_primary * parameter_comprehensive_primary) + (number_of_students_secondary * parameter_comprehensive_secondary)) / 30 * reference_charging_cart_price,
+
+    # Multimedia Projector
+    dim_2_price_multimedia_projector = number_of_schools * parameter_multimedia_projector * reference_multimedia_projector_price,
+
+    # Headphones
+    dim_2_price_headphones_min_scenario = ((number_of_students_primary * parameter_min_scenario_primary) + (number_of_students_secondary * parameter_min_scenario_secondary)) * reference_headphone_price,
+
+    dim_2_price_headphones_mild_scenario = ((number_of_students_primary * parameter_mild_scenario_primary) + (number_of_students_secondary * parameter_mild_scenario_secondary)) * reference_headphone_price,
+
+    dim_2_price_headphones_comprehensive = ((number_of_students_primary * parameter_comprehensive_primary) + (number_of_students_secondary * parameter_comprehensive_secondary)) * reference_headphone_price,
+
+    # --- Dimensão 3: Cálculo de Preços ---
+
+    # Diagnostic Tool 
+    dim_3_price_diagnostic_tool = reference_price_diagnostic_tool,
+
+    # LMS Platform 
+    dim_3_price_lms_platform = reference_price_lms,
+
+    #### Scenario online-60
+    # Content Production
+    dim_3_price_content_production_scenario_online60 = reference_price_content_production60,
+
+    # Specialist Trainers
+    dim_3_price_specialist_trainers_scenario_online60 = reference_price_trainers60 * (number_of_graduated_teacher / parameter_teacher_class),
+
+    # Course for Trainers
+    dim_3_price_course_for_trainers_scenario_online60 = reference_price_trainers60 * 1.5 * (number_of_graduated_teacher / parameter_teacher_class) / parameter_teacher_class,
+
+    # Training design (valor fixo)
+    dim_3_price_training_design_scenario_online60 = reference_price_training_design,
+
+    #### Scenario online-40 (baseado nos valores do online-60)
+    # Content Production
+    dim_3_price_content_production_scenario_online40 = dim_3_price_content_production_scenario_online60 * reference_multiplier40h,
+    # Specialist Trainers
+    dim_3_price_specialist_trainers_scenario_online40 = dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier40h,
+    # Course for Trainers
+    dim_3_price_course_for_trainers_scenario_online40 = dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier40h,
+    # Training design
+    dim_3_price_training_design_scenario_online40 = dim_3_price_training_design_scenario_online60 * reference_multiplier40h,
+
+    #### Scenario in-person (baseado nos valores do online-60)
+    # Content Production
+    dim_3_price_content_production_scenario_inperson40 = dim_3_price_content_production_scenario_online60 * reference_multiplier40h,
+    
+    # Specialist Trainers
+    dim_3_price_specialist_trainers_scenario_inperson40 = dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h, 
+    
+    # Course for Trainers
+    dim_3_price_course_for_trainers_scenario_inperson40 = dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h, 
+    
+    # Training design
+    dim_3_price_training_design_scenario_inperson40 = dim_3_price_training_design_scenario_online60 * reference_multiplier40h,
+
+    # Central Team
+    dim_5_price_central_team = reference_consultant_price * ((parameter_central_team_min + parameter_central_team_max) / 2) * type_opex,
+
+    # Regional Team
+    dim_5_price_regional_team = parameter_regional_team * number_of_schools * reference_teacher_price * type_opex,
+
+    # Local Team
+    dim_5_price_local_team =    (parameter_local_team_urban *(number_of_schools- number_of_rural_schools) +
+    (parameter_local_team_rural* number_of_rural_schools)) * reference_teacher_price * type_opex,
+
+    # Teaching and Learning Platform
+    dim_4_price_teaching_learning_platform = (number_of_students_secondary + number_of_students_primary) * reference_price_teaching_learning * parameter_teaching_learning * (type_opex / 12),
+
+    # Management Platform
+    dim_4_price_management_platform = number_of_schools * reference_price_management_platform * parameter_management * (type_opex / 12)
+  )
+```
+
+```{r totais}
+
+df <- df |>
+  mutate(
+    # --- Dimensão 1: Soma de todas as categorias da Dimensão 1 ---
+    dim_1_total = (dim_1_price_fiber_exp +
+                  dim_1_price_satellite_service +
+                  dim_1_price_fiber_link +
+                  dim_1_price_access_point +
+                  dim_1_price_firewall +
+                  dim_1_price_nobreak +
+                  dim_1_price_switch +
+                  dim_1_price_rack),
+
+    # --- Dimensão 2: Três totais baseados nos cenários de dispositivos ---
+    dim_2_total_min = (dim_2_price_device_student_min +
+                      dim_2_price_device_teacher +
+                      dim_2_price_device_school +
+                      dim_2_price_charging_cart_min +
+                      dim_2_price_multimedia_projector +
+                      dim_2_price_headphones_min_scenario),
+
+    dim_2_total_mild = (dim_2_price_device_student_mild +
+                       dim_2_price_device_teacher +
+                       dim_2_price_device_school +
+                       dim_2_price_charging_cart_mild +
+                       dim_2_price_multimedia_projector +
+                       dim_2_price_headphones_mild_scenario),
+
+    dim_2_total_comprehensive = (dim_2_price_device_student_comprehensive +
+                                dim_2_price_device_teacher +
+                                dim_2_price_device_school +
+                                dim_2_price_charging_cart_comprehensive +
+                                dim_2_price_multimedia_projector +
+                                dim_2_price_headphones_comprehensive),
+
+    # --- Dimensão 3: Três totais baseados nos cenários de treinamento ---
+    dim_3_total_online_60 = (dim_3_price_diagnostic_tool +
+                            dim_3_price_lms_platform +
+                            dim_3_price_content_production_scenario_online60 +
+                            dim_3_price_specialist_trainers_scenario_online60 +
+                            dim_3_price_course_for_trainers_scenario_online60 +
+                            dim_3_price_training_design_scenario_online60),
+
+    dim_3_total_online_40 = (dim_3_price_diagnostic_tool +
+                            dim_3_price_lms_platform +
+                            dim_3_price_content_production_scenario_online40 +
+                            dim_3_price_specialist_trainers_scenario_online40 +
+                            dim_3_price_course_for_trainers_scenario_online40 +
+                            dim_3_price_training_design_scenario_online40),
+
+    dim_3_total_inperson_40 = (dim_3_price_diagnostic_tool +
+                            dim_3_price_lms_platform +
+                              dim_3_price_content_production_scenario_inperson40 +
+                              dim_3_price_specialist_trainers_scenario_inperson40 +
+                              dim_3_price_course_for_trainers_scenario_inperson40 +
+                              dim_3_price_training_design_scenario_inperson40),
+
+    # --- Dimensão 4: Soma de todas as categorias da Dimensão 4 ---
+    dim_4_total = (dim_4_price_teaching_learning_platform +
+                  dim_4_price_management_platform),
+
+    # --- Dimensão 5: Soma de todas as categorias da Dimensão 5 ---
+    dim_5_total = (dim_5_price_central_team +
+                  dim_5_price_regional_team +
+                  dim_5_price_local_team)
+  )
+```
+
+```{r rangetotais}
+# Adiciona as colunas de Total Geral, combinando os diferentes cenários
+df <- df |>
+  mutate(
+    # Total Geral para Cenário Mínimo de Dispositivos e Treinamento Online 60h
+    total_geral_min_dev_online_60 = dim_1_total + dim_2_total_min + dim_3_total_online_60 + dim_4_total + dim_5_total,
+
+    # Total Geral para Cenário Mínimo de Dispositivos e Treinamento Online 40h
+    total_geral_min_dev_online_40 = dim_1_total + dim_2_total_min + dim_3_total_online_40 + dim_4_total + dim_5_total,
+
+    # Total Geral para Cenário Mínimo de Dispositivos e Treinamento Presencial 40h
+    total_geral_min_dev_inperson_40 = dim_1_total + dim_2_total_min + dim_3_total_inperson_40 + dim_4_total + dim_5_total,
+
+    # Total Geral para Cenário Moderado de Dispositivos e Treinamento Online 60h
+    total_geral_mild_dev_online_60 = dim_1_total + dim_2_total_mild + dim_3_total_online_60 + dim_4_total + dim_5_total,
+
+    # Total Geral para Cenário Moderado de Dispositivos e Treinamento Online 40h
+    total_geral_mild_dev_online_40 = dim_1_total + dim_2_total_mild + dim_3_total_online_40 + dim_4_total + dim_5_total,
+
+    # Total Geral para Cenário Moderado de Dispositivos e Treinamento Presencial 40h
+    total_geral_mild_dev_inperson_40 = dim_1_total + dim_2_total_mild + dim_3_total_inperson_40 + dim_4_total + dim_5_total,
+
+    # Total Geral para Cenário Abrangente de Dispositivos e Treinamento Online 60h
+    total_geral_comp_dev_online_60 = dim_1_total + dim_2_total_comprehensive + dim_3_total_online_60 + dim_4_total + dim_5_total,
+
+    # Total Geral para Cenário Abrangente de Dispositivos e Treinamento Online 40h
+    total_geral_comp_dev_online_40 = dim_1_total + dim_2_total_comprehensive + dim_3_total_online_40 + dim_4_total + dim_5_total,
+
+    # Total Geral para Cenário Abrangente de Dispositivos e Treinamento Presencial 40h
+    total_geral_comp_dev_inperson_40 = dim_1_total + dim_2_total_comprehensive + dim_3_total_inperson_40 + dim_4_total + dim_5_total
+  )
+
+
+df <- df |>
+  mutate(
+    # Range para Total Geral (Mínimo de Dispositivos e Treinamento Online 60h)
+    total_geral_min_dev_online_60_menos_25 = total_geral_min_dev_online_60 * 0.75,
+    total_geral_min_dev_online_60_mais_25 = total_geral_min_dev_online_60 * 1.25,
+
+    # Range para Total Geral (Mínimo de Dispositivos e Treinamento Online 40h)
+    total_geral_min_dev_online_40_menos_25 = total_geral_min_dev_online_40 * 0.75,
+    total_geral_min_dev_online_40_mais_25 = total_geral_min_dev_online_40 * 1.25,
+
+    # Range para Total Geral (Mínimo de Dispositivos e Treinamento Presencial 40h)
+    total_geral_min_dev_inperson_40_menos_25 = total_geral_min_dev_inperson_40 * 0.75,
+    total_geral_min_dev_inperson_40_mais_25 = total_geral_min_dev_inperson_40 * 1.25,
+
+    # Range para Total Geral (Moderado de Dispositivos e Treinamento Online 60h)
+    total_geral_mild_dev_online_60_menos_25 = total_geral_mild_dev_online_60 * 0.75,
+    total_geral_mild_dev_online_60_mais_25 = total_geral_mild_dev_online_60 * 1.25,
+
+    # Range para Total Geral (Moderado de Dispositivos e Treinamento Online 40h)
+    total_geral_mild_dev_online_40_menos_25 = total_geral_mild_dev_online_40 * 0.75,
+    total_geral_mild_dev_online_40_mais_25 = total_geral_mild_dev_online_40 * 1.25,
+
+    # Range para Total Geral (Moderado de Dispositivos e Treinamento Presencial 40h)
+    total_geral_mild_dev_inperson_40_menos_25 = total_geral_mild_dev_inperson_40 * 0.75,
+    total_geral_mild_dev_inperson_40_mais_25 = total_geral_mild_dev_inperson_40 * 1.25,
+
+    # Range para Total Geral (Abrangente de Dispositivos e Treinamento Online 60h)
+    total_geral_comp_dev_online_60_menos_25 = total_geral_comp_dev_online_60 * 0.75,
+    total_geral_comp_dev_online_60_mais_25 = total_geral_comp_dev_online_60 * 1.25,
+
+    # Range para Total Geral (Abrangente de Dispositivos e Treinamento Online 40h)
+    total_geral_comp_dev_online_40_menos_25 = total_geral_comp_dev_online_40 * 0.75,
+    total_geral_comp_dev_online_40_mais_25 = total_geral_comp_dev_online_40 * 1.25,
+
+    # Range para Total Geral (Abrangente de Dispositivos e Treinamento Presencial 40h)
+    total_geral_comp_dev_inperson_40_menos_25 = total_geral_comp_dev_inperson_40 * 0.75,
+    total_geral_comp_dev_inperson_40_mais_25 = total_geral_comp_dev_inperson_40 * 1.25
+  )
+```
+
+```{r sce1dim}
+#Scenario 1 - Secondary Schools
+
+df <- df |>
+mutate(
+    # --- Dimension 1: Connectivity and Infrastructure Costs for Secondary Schools ---
+    sce1_sec_dim_1_price_fiber_exp = itu_pop_between_25_50 * secondary_schools_cima * parameter_fiber_exp * reference_fiber_exp_price,
+    sce1_sec_dim_1_price_satellite_service = itu_pop_above_50 * secondary_schools_cima * reference_satellite_link_price * type_opex,
+    sce1_sec_dim_1_price_fiber_link = itu_pop_below_50 * secondary_schools_cima * avg_student_per_school * (reference_fiber_link_price/200) * type_opex,
+    sce1_sec_dim_1_price_access_point = ((number_of_students_secondary/ 35) + secondary_schools_cima * 3) * parameter_access_point * reference_access_point_price, 
+    sce1_sec_dim_1_price_firewall = secondary_schools_cima * parameter_firewall * reference_firewall_price,
+    sce1_sec_dim_1_price_nobreak = secondary_schools_cima * parameter_nobreak * reference_nobreak_price,
+    sce1_sec_dim_1_price_switch = secondary_schools_cima * parameter_switch * reference_switch_price,
+    sce1_sec_dim_1_price_rack = secondary_schools_cima * parameter_rack * reference_rack_price,
+
+    # --- Dimension 2: Device Costs for Secondary Schools ---
+    sce1_sec_dim_2_price_device_student_min = number_of_students_secondary * parameter_min_scenario_secondary * reference_cloudbook_price,
+    sce1_sec_dim_2_price_device_student_mild = number_of_students_secondary * parameter_mild_scenario_secondary * reference_cloudbook_price,
+    sce1_sec_dim_2_price_device_student_comprehensive = number_of_students_secondary * parameter_comprehensive_secondary * reference_cloudbook_price,
+    sce1_sec_dim_2_price_device_teacher = (number_of_teachers * (number_of_students_secondary / (number_of_students))) * parameter_device_per_teacher * reference_laptop_price,
+    sce1_sec_dim_2_price_device_school = secondary_schools_cima * parameter_device_per_school * reference_desktop_price,
+    sce1_sec_dim_2_price_charging_cart_min = (number_of_students_secondary * parameter_min_scenario_secondary) / 30 * reference_charging_cart_price,
+    sce1_sec_dim_2_price_charging_cart_mild = (number_of_students_secondary * parameter_mild_scenario_secondary) / 30 * reference_charging_cart_price,
+    sce1_sec_dim_2_price_charging_cart_comprehensive = (number_of_students_secondary * parameter_comprehensive_secondary) / 30 * reference_charging_cart_price,
+    sce1_sec_dim_2_price_multimedia_projector = secondary_schools_cima * parameter_multimedia_projector * reference_multimedia_projector_price,
+    sce1_sec_dim_2_price_headphones_min_scenario = (number_of_students_secondary * parameter_min_scenario_secondary) * reference_headphone_price,
+    sce1_sec_dim_2_price_headphones_mild_scenario = (number_of_students_secondary * parameter_mild_scenario_secondary) * reference_headphone_price,
+    sce1_sec_dim_2_price_headphones_comprehensive = (number_of_students_secondary * parameter_comprehensive_secondary) * reference_headphone_price,
+
+    # --- Dimension 3: Training and Digital Tools Costs for Secondary Schools ---
+    sce1_sec_dim_3_price_diagnostic_tool = reference_price_diagnostic_tool, 
+    sce1_sec_dim_3_price_lms_platform = reference_price_lms, 
+    sce1_sec_dim_3_price_content_production_scenario_online60 = reference_price_content_production60, 
+    sce1_sec_dim_3_price_specialist_trainers_scenario_online60 = reference_price_trainers60 * ((number_of_graduated_teacher * (number_of_students_secondary / (number_of_students))) / parameter_teacher_class),
+    sce1_sec_dim_3_price_course_for_trainers_scenario_online60 = reference_teacher_price * 1.5* ((number_of_graduated_teacher * (number_of_students_secondary / (number_of_students))) / parameter_teacher_class) / parameter_teacher_class,
+    sce1_sec_dim_3_price_training_design_scenario_online60 = reference_price_training_design,
+
+    # Derived scenarios for Dimension 3
+    sce1_sec_dim_3_price_content_production_scenario_online40 = sce1_sec_dim_3_price_content_production_scenario_online60 * reference_multiplier40h,
+    sce1_sec_dim_3_price_specialist_trainers_scenario_online40 = sce1_sec_dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier40h,
+    sce1_sec_dim_3_price_course_for_trainers_scenario_online40 = sce1_sec_dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier40h,
+    sce1_sec_dim_3_price_training_design_scenario_online40 = sce1_sec_dim_3_price_training_design_scenario_online60 * reference_multiplier40h,
+
+    sce1_sec_dim_3_price_content_production_scenario_inperson40 = sce1_sec_dim_3_price_content_production_scenario_online60 * reference_multiplier40h,
+    sce1_sec_dim_3_price_specialist_trainers_scenario_inperson40 = sce1_sec_dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h,
+    sce1_sec_dim_3_price_course_for_trainers_scenario_inperson40 = sce1_sec_dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h,
+    sce1_sec_dim_3_price_training_design_scenario_inperson40 = sce1_sec_dim_3_price_training_design_scenario_online60 * reference_multiplier40h,
+
+    # --- Dimension 4: Platform Costs for Secondary Schools ---
+    sce1_sec_dim_4_price_teaching_learning_platform = number_of_students_secondary * reference_price_teaching_learning * parameter_teaching_learning * (type_opex / 12),
+    sce1_sec_dim_4_price_management_platform = secondary_schools_cima * reference_price_management_platform * parameter_management * (type_opex / 12),
+
+    # --- Dimension 5: Team/Personnel Costs for Secondary Schools ---
+    sce1_sec_dim_5_price_central_team = reference_consultant_price * ((parameter_central_team_min + parameter_central_team_max) / 2) * type_opex, 
+    sce1_sec_dim_5_price_regional_team = parameter_regional_team * secondary_schools_cima * reference_teacher_price * type_opex,
+    sce1_sec_dim_5_price_local_team = (parameter_local_team_urban *(secondary_schools_cima/number_of_schools)*(number_of_schools- number_of_rural_schools) + (secondary_schools_cima/number_of_schools)*(parameter_local_team_rural* number_of_rural_schools)) * reference_teacher_price *type_opex
+  )
+```
+
+```{r sce1total}
+# --- Aggregation of Dimension Totals for Secondary Schools ---}
+df <- df |>
+  mutate(
+    sce1_sec_dim_1_total = (sce1_sec_dim_1_price_fiber_exp +
+                            sce1_sec_dim_1_price_satellite_service +
+                            sce1_sec_dim_1_price_fiber_link +
+                            sce1_sec_dim_1_price_access_point +
+                            sce1_sec_dim_1_price_firewall +
+                            sce1_sec_dim_1_price_nobreak +
+                            sce1_sec_dim_1_price_switch +
+                            sce1_sec_dim_1_price_rack),
+
+    sce1_sec_dim_2_total_min = (sce1_sec_dim_2_price_device_student_min +
+                                sce1_sec_dim_2_price_device_teacher +
+                                sce1_sec_dim_2_price_device_school +
+                                sce1_sec_dim_2_price_charging_cart_min +
+                                sce1_sec_dim_2_price_multimedia_projector +
+                                sce1_sec_dim_2_price_headphones_min_scenario),
+
+    sce1_sec_dim_2_total_mild = (sce1_sec_dim_2_price_device_student_mild +
+                                  sce1_sec_dim_2_price_device_teacher +
+                                 sce1_sec_dim_2_price_device_school +
+                                 sce1_sec_dim_2_price_charging_cart_mild +
+                                 sce1_sec_dim_2_price_multimedia_projector +
+                                 sce1_sec_dim_2_price_headphones_mild_scenario),
+
+    sce1_sec_dim_2_total_comprehensive = (sce1_sec_dim_2_price_device_student_comprehensive +
+                                          sce1_sec_dim_2_price_device_teacher +
+                                          sce1_sec_dim_2_price_device_school +
+                                          sce1_sec_dim_2_price_charging_cart_comprehensive +
+                                          sce1_sec_dim_2_price_multimedia_projector +
+                                          sce1_sec_dim_2_price_headphones_comprehensive),
+
+    sce1_sec_dim_3_total_online_60 = (sce1_sec_dim_3_price_diagnostic_tool +
+                                      sce1_sec_dim_3_price_lms_platform +
+                                      sce1_sec_dim_3_price_content_production_scenario_online60 +
+                                      sce1_sec_dim_3_price_specialist_trainers_scenario_online60 +
+                                      sce1_sec_dim_3_price_course_for_trainers_scenario_online60 +
+                                      sce1_sec_dim_3_price_training_design_scenario_online60),
+
+    sce1_sec_dim_3_total_online_40 = (sce1_sec_dim_3_price_diagnostic_tool +
+                                      sce1_sec_dim_3_price_lms_platform +
+                                      sce1_sec_dim_3_price_content_production_scenario_online40 +
+                                      sce1_sec_dim_3_price_specialist_trainers_scenario_online40 +
+                                      sce1_sec_dim_3_price_course_for_trainers_scenario_online40 +
+                                      sce1_sec_dim_3_price_training_design_scenario_online40),
+
+    sce1_sec_dim_3_total_inperson_40 = (sce1_sec_dim_3_price_diagnostic_tool +
+                                        sce1_sec_dim_3_price_lms_platform +
+                                        sce1_sec_dim_3_price_content_production_scenario_inperson40 +
+                                        sce1_sec_dim_3_price_specialist_trainers_scenario_inperson40 +
+                                        sce1_sec_dim_3_price_course_for_trainers_scenario_inperson40 +
+                                        sce1_sec_dim_3_price_training_design_scenario_inperson40),
+
+    sce1_sec_dim_4_total = (sce1_sec_dim_4_price_teaching_learning_platform +
+                            sce1_sec_dim_4_price_management_platform),
+
+    sce1_sec_dim_5_total = (sce1_sec_dim_5_price_central_team +
+                            sce1_sec_dim_5_price_regional_team +
+                            sce1_sec_dim_5_price_local_team)
+  )
+
+# --- Overall Totals (General Scenarios) for Secondary Schools ---
+df <- df |>
+  mutate(
+    sce1_sec_total_geral_min_dev_online_60 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_min + sce1_sec_dim_3_total_online_60 + sce1_sec_dim_4_total + sce1_sec_dim_5_total,
+    sce1_sec_total_geral_min_dev_online_40 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_min + sce1_sec_dim_3_total_online_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total,
+    sce1_sec_total_geral_min_dev_inperson_40 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_min + sce1_sec_dim_3_total_inperson_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total,
+
+    sce1_sec_total_geral_mild_dev_online_60 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_mild + sce1_sec_dim_3_total_online_60 + sce1_sec_dim_4_total + sce1_sec_dim_5_total,
+    sce1_sec_total_geral_mild_dev_online_40 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_mild + sce1_sec_dim_3_total_online_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total,
+    sce1_sec_total_geral_mild_dev_inperson_40 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_mild + sce1_sec_dim_3_total_inperson_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total,
+
+    sce1_sec_total_geral_comp_dev_online_60 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_comprehensive + sce1_sec_dim_3_total_online_60 + sce1_sec_dim_4_total + sce1_sec_dim_5_total,
+    sce1_sec_total_geral_comp_dev_online_40 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_comprehensive + sce1_sec_dim_3_total_online_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total,
+    sce1_sec_total_geral_comp_dev_inperson_40 = sce1_sec_dim_1_total + sce1_sec_dim_2_total_comprehensive + sce1_sec_dim_3_total_inperson_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total
+  )
+
+# --- Per-Student and Per-School Totals for Secondary Schools ---
+df <- df |>
+  mutate(
+    sce1_sec_total_por_aluno_min_dev_online_60 = sce1_sec_total_geral_min_dev_online_60 / number_of_students_secondary,
+    sce1_sec_total_por_aluno_min_dev_online_40 = sce1_sec_total_geral_min_dev_online_40 / number_of_students_secondary,
+    sce1_sec_total_por_aluno_min_dev_inperson_40 = sce1_sec_total_geral_min_dev_inperson_40 / number_of_students_secondary,
+
+    sce1_sec_total_por_aluno_mild_dev_online_60 = sce1_sec_total_geral_mild_dev_online_60 / number_of_students_secondary,
+    sce1_sec_total_por_aluno_mild_dev_online_40 = sce1_sec_total_geral_mild_dev_online_40 / number_of_students_secondary,
+    sce1_sec_total_por_aluno_mild_dev_inperson_40 = sce1_sec_total_geral_mild_dev_inperson_40 / number_of_students_secondary,
+
+    sce1_sec_total_por_aluno_comp_dev_online_60 = sce1_sec_total_geral_comp_dev_online_60 / number_of_students_secondary,
+    sce1_sec_total_por_aluno_comp_dev_online_40 = sce1_sec_total_geral_comp_dev_online_40 / number_of_students_secondary,
+    sce1_sec_total_por_aluno_comp_dev_inperson_40 = sce1_sec_total_geral_comp_dev_inperson_40 / number_of_students_secondary,
+
+    sce1_sec_total_por_escola_min_dev_online_60 = sce1_sec_total_geral_min_dev_online_60 / secondary_schools_cima,
+    sce1_sec_total_por_escola_min_dev_online_40 = sce1_sec_total_geral_min_dev_online_40 / secondary_schools_cima,
+    sce1_sec_total_por_escola_min_dev_inperson_40 = sce1_sec_total_geral_min_dev_inperson_40 / secondary_schools_cima,
+
+    sce1_sec_total_por_escola_mild_dev_online_60 = sce1_sec_total_geral_mild_dev_online_60 / secondary_schools_cima,
+    sce1_sec_total_por_escola_mild_dev_online_40 = sce1_sec_total_geral_mild_dev_online_40 / secondary_schools_cima,
+    sce1_sec_total_por_escola_mild_dev_inperson_40 = sce1_sec_total_geral_mild_dev_inperson_40 / secondary_schools_cima,
+
+    sce1_sec_total_por_escola_comp_dev_online_60 = sce1_sec_total_geral_comp_dev_online_60 / secondary_schools_cima,
+    sce1_sec_total_por_escola_comp_dev_online_40 = sce1_sec_total_geral_comp_dev_online_40 / secondary_schools_cima,
+    sce1_sec_total_por_escola_comp_dev_inperson_40 = sce1_sec_total_geral_comp_dev_inperson_40 / secondary_schools_cima
+  )
+
+# --- Cost Ranges for Secondary Schools ---
+df <- df |>
+  mutate(
+    sce1_sec_total_geral_min_dev_online_60_menos_25 = sce1_sec_total_geral_min_dev_online_60 * 0.75,
+    sce1_sec_total_geral_min_dev_online_60_mais_25 = sce1_sec_total_geral_min_dev_online_60 * 1.25,
+
+    sce1_sec_total_geral_min_dev_online_40_menos_25 = sce1_sec_total_geral_min_dev_online_40 * 0.75,
+    sce1_sec_total_geral_min_dev_online_40_mais_25 = sce1_sec_total_geral_min_dev_online_40 * 1.25,
+
+    sce1_sec_total_geral_min_dev_inperson_40_menos_25 = sce1_sec_total_geral_min_dev_inperson_40 * 0.75,
+    sce1_sec_total_geral_min_dev_inperson_40_mais_25 = sce1_sec_total_geral_min_dev_inperson_40 * 1.25,
+
+    sce1_sec_total_geral_mild_dev_online_60_menos_25 = sce1_sec_total_geral_mild_dev_online_60 * 0.75,
+    sce1_sec_total_geral_mild_dev_online_60_mais_25 = sce1_sec_total_geral_mild_dev_online_60 * 1.25,
+
+    sce1_sec_total_geral_mild_dev_online_40_menos_25 = sce1_sec_total_geral_mild_dev_online_40 * 0.75,
+    sce1_sec_total_geral_mild_dev_online_40_mais_25 = sce1_sec_total_geral_mild_dev_online_40 * 1.25,
+
+    sce1_sec_total_geral_mild_dev_inperson_40_menos_25 = sce1_sec_total_geral_mild_dev_inperson_40 * 0.75,
+    sce1_sec_total_geral_mild_dev_inperson_40_mais_25 = sce1_sec_total_geral_mild_dev_inperson_40 * 1.25,
+
+    sce1_sec_total_geral_comp_dev_online_60_menos_25 = sce1_sec_total_geral_comp_dev_online_60 * 0.75,
+    sce1_sec_total_geral_comp_dev_online_60_mais_25 = sce1_sec_total_geral_comp_dev_online_60 * 1.25,
+
+    sce1_sec_total_geral_comp_dev_online_40_menos_25 = sce1_sec_total_geral_comp_dev_online_40 * 0.75,
+    sce1_sec_total_geral_comp_dev_online_40_mais_25 = sce1_sec_total_geral_comp_dev_online_40 * 1.25,
+
+    sce1_sec_total_geral_comp_dev_inperson_40_menos_25 = sce1_sec_total_geral_comp_dev_inperson_40 * 0.75,
+    sce1_sec_total_geral_comp_dev_inperson_40_mais_25 = sce1_sec_total_geral_comp_dev_inperson_40 * 1.25
+  )
+
+```
+
+```{r sce2dim}
+df <- df |>
+  mutate(
+    # --- Dimensão 1: Conectividade e Infraestrutura ---
+    sce2_rur_dim_1_price_satellite_service =
+      pmin(number_of_rural_schools, itu_pop_above_50 * number_of_schools) *
+      reference_satellite_link_price * type_opex,
+
+    sce2_rur_dim_1_price_fiber_exp =
+      pmin(number_of_rural_schools- pmin(number_of_rural_schools, (itu_pop_above_50 * number_of_schools)), itu_pop_between_25_50 * number_of_schools ) * parameter_fiber_exp * reference_fiber_exp_price,
+
+    sce2_rur_dim_1_price_fiber_link =
+      (number_of_rural_schools -
+          pmin(number_of_rural_schools, itu_pop_above_50)) * (avg_student_per_school)*(reference_fiber_link_price / 200) * type_opex,
+
+    sce2_rur_dim_1_price_access_point =
+    ((number_of_students_primary/ 25) + primary_schools_cima * 3)  + ((number_of_students_secondary/ 35) + secondary_schools_cima * 3) * (number_of_rural_schools / number_of_schools) * parameter_access_point * reference_access_point_price,
+    
+    sce2_rur_dim_1_price_firewall =
+      number_of_rural_schools * parameter_firewall * reference_firewall_price,
+
+    sce2_rur_dim_1_price_nobreak =
+      number_of_rural_schools * parameter_nobreak * reference_nobreak_price,
+
+    sce2_rur_dim_1_price_switch =
+      number_of_rural_schools * parameter_switch * reference_switch_price,
+
+    sce2_rur_dim_1_price_rack =
+      number_of_rural_schools * parameter_rack * reference_rack_price,
+
+    # --- Dimensão 2: Dispositivos ---
+    sce2_rur_dim_2_price_device_student_min =
+      ((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_primary * reference_tablet_price) +
+      ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_secondary * reference_cloudbook_price),
+
+    sce2_rur_dim_2_price_device_student_mild =
+      ((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_primary * reference_tablet_price) +
+      ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_secondary * reference_cloudbook_price),
+
+    sce2_rur_dim_2_price_device_student_comprehensive =
+      ((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_primary * reference_tablet_price) +
+      ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_secondary * reference_cloudbook_price),
+
+    sce2_rur_dim_2_price_device_teacher =
+      (number_of_teachers * (number_of_rural_schools / number_of_schools)) *
+      parameter_device_per_teacher * reference_laptop_price,
+
+    sce2_rur_dim_2_price_device_school =
+      number_of_rural_schools * parameter_device_per_school * reference_desktop_price,
+
+    sce2_rur_dim_2_price_charging_cart_min =
+      (((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_primary) +
+       ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_secondary)) / 30 *
+      reference_charging_cart_price,
+
+    sce2_rur_dim_2_price_charging_cart_mild =
+      (((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_primary) +
+       ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_secondary)) / 30 *
+      reference_charging_cart_price,
+
+    sce2_rur_dim_2_price_charging_cart_comprehensive =
+      (((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_primary) +
+       ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_secondary)) / 30 *
+      reference_charging_cart_price,
+
+    sce2_rur_dim_2_price_multimedia_projector =
+      number_of_rural_schools * parameter_multimedia_projector * reference_multimedia_projector_price,
+
+    sce2_rur_dim_2_price_headphones_min_scenario =
+      (((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_primary) +
+       ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_secondary)) *
+      reference_headphone_price,
+
+    sce2_rur_dim_2_price_headphones_mild_scenario =
+      (((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_primary) +
+       ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_secondary)) *
+      reference_headphone_price,
+
+    sce2_rur_dim_2_price_headphones_comprehensive =
+      (((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_primary) +
+       ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_secondary)) *
+      reference_headphone_price,
+
+    # --- Dimensão 3: Ferramentas e Formação ---
+    sce2_rur_dim_3_price_diagnostic_tool = reference_price_diagnostic_tool,
+    sce2_rur_dim_3_price_lms_platform = reference_price_lms,
+    sce2_rur_dim_3_price_content_production_scenario_online60 = reference_price_content_production60,
+    sce2_rur_dim_3_price_specialist_trainers_scenario_online60 =
+      reference_price_trainers60 * ((number_of_graduated_teacher * (number_of_rural_schools / number_of_schools)) / parameter_teacher_class),
+
+    sce2_rur_dim_3_price_course_for_trainers_scenario_online60 =
+      reference_price_trainers60 * 1.5 *
+      ((number_of_graduated_teacher * (number_of_rural_schools / number_of_schools)) / parameter_teacher_class) /
+      parameter_teacher_class,
+
+    sce2_rur_dim_3_price_training_design_scenario_online60 = reference_price_training_design,
+
+    sce2_rur_dim_3_price_content_production_scenario_online40 =
+      sce2_rur_dim_3_price_content_production_scenario_online60 * reference_multiplier40h,
+
+    sce2_rur_dim_3_price_specialist_trainers_scenario_online40 =
+      sce2_rur_dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier40h,
+
+    sce2_rur_dim_3_price_course_for_trainers_scenario_online40 =
+      sce2_rur_dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier40h,
+
+    sce2_rur_dim_3_price_training_design_scenario_online40 =
+      sce2_rur_dim_3_price_training_design_scenario_online60 * reference_multiplier40h,
+
+    sce2_rur_dim_3_price_content_production_scenario_inperson40 =
+      sce2_rur_dim_3_price_content_production_scenario_online60 * reference_multiplier40h,
+
+    sce2_rur_dim_3_price_specialist_trainers_scenario_inperson40 =
+      sce2_rur_dim_3_price_specialist_trainers_scenario_online60 *
+      reference_multiplier_inperson * reference_multiplier40h,
+
+    sce2_rur_dim_3_price_course_for_trainers_scenario_inperson40 =
+      sce2_rur_dim_3_price_course_for_trainers_scenario_online60 *
+      reference_multiplier_inperson * reference_multiplier40h,
+
+    sce2_rur_dim_3_price_training_design_scenario_inperson40 =
+      sce2_rur_dim_3_price_training_design_scenario_online60 * reference_multiplier40h,
+
+    # --- Dimensão 4: Plataformas ---
+    sce2_rur_dim_4_price_teaching_learning_platform =
+      ((number_of_students_secondary + number_of_students_primary) * (number_of_rural_schools / number_of_schools)) *
+      reference_price_teaching_learning * parameter_teaching_learning * (type_opex / 12),
+
+    sce2_rur_dim_4_price_management_platform =
+      number_of_rural_schools * reference_price_management_platform * parameter_management * (type_opex / 12),
+
+    # --- Dimensão 5: Equipes ---
+    sce2_rur_dim_5_price_central_team =
+      reference_consultant_price * ((parameter_central_team_min + parameter_central_team_max) / 2) * type_opex,
+
+    sce2_rur_dim_5_price_regional_team =
+      parameter_regional_team * number_of_rural_schools * reference_teacher_price * type_opex,
+
+    sce2_rur_dim_5_price_local_team =
+      parameter_local_team_rural * number_of_rural_schools * reference_teacher_price * type_opex
+  )
+
+```
+
+```{r scen2total}
+df <- df |>
+  # --- Totais por Dimensão ---
+  mutate(
+    sce2_rur_dim_1_total = (
+      sce2_rur_dim_1_price_fiber_exp +
+      sce2_rur_dim_1_price_satellite_service +
+      sce2_rur_dim_1_price_fiber_link +
+      sce2_rur_dim_1_price_access_point +
+      sce2_rur_dim_1_price_firewall +
+      sce2_rur_dim_1_price_nobreak +
+      sce2_rur_dim_1_price_switch +
+      sce2_rur_dim_1_price_rack
+    ) ,
+
+    sce2_rur_dim_2_total_min = (
+      sce2_rur_dim_2_price_device_student_min +
+      sce2_rur_dim_2_price_device_teacher +
+      sce2_rur_dim_2_price_device_school +
+      sce2_rur_dim_2_price_charging_cart_min +
+      sce2_rur_dim_2_price_multimedia_projector +
+      sce2_rur_dim_2_price_headphones_min_scenario
+    ) ,
+
+    sce2_rur_dim_2_total_mild = (
+      sce2_rur_dim_2_price_device_student_mild +
+      sce2_rur_dim_2_price_device_teacher +
+      sce2_rur_dim_2_price_device_school +
+      sce2_rur_dim_2_price_charging_cart_mild +
+      sce2_rur_dim_2_price_multimedia_projector +
+      sce2_rur_dim_2_price_headphones_mild_scenario
+    ) ,
+
+    sce2_rur_dim_2_total_comprehensive = (
+      sce2_rur_dim_2_price_device_student_comprehensive +
+      sce2_rur_dim_2_price_device_teacher +
+      sce2_rur_dim_2_price_device_school +
+      sce2_rur_dim_2_price_charging_cart_comprehensive +
+      sce2_rur_dim_2_price_multimedia_projector +
+      sce2_rur_dim_2_price_headphones_comprehensive
+    ) ,
+
+    sce2_rur_dim_3_total_online_60 = (
+      sce2_rur_dim_3_price_diagnostic_tool +
+      sce2_rur_dim_3_price_lms_platform +
+      sce2_rur_dim_3_price_content_production_scenario_online60 +
+      sce2_rur_dim_3_price_specialist_trainers_scenario_online60 +
+      sce2_rur_dim_3_price_course_for_trainers_scenario_online60 +
+      sce2_rur_dim_3_price_training_design_scenario_online60
+    ) ,
+
+    sce2_rur_dim_3_total_online_40 = (
+      sce2_rur_dim_3_price_diagnostic_tool +
+      sce2_rur_dim_3_price_lms_platform +
+      sce2_rur_dim_3_price_content_production_scenario_online40 +
+      sce2_rur_dim_3_price_specialist_trainers_scenario_online40 +
+      sce2_rur_dim_3_price_course_for_trainers_scenario_online40 +
+      sce2_rur_dim_3_price_training_design_scenario_online40
+    ) ,
+
+    sce2_rur_dim_3_total_inperson_40 = (
+      sce2_rur_dim_3_price_diagnostic_tool +
+      sce2_rur_dim_3_price_lms_platform +
+      sce2_rur_dim_3_price_content_production_scenario_inperson40 +
+      sce2_rur_dim_3_price_specialist_trainers_scenario_inperson40 +
+      sce2_rur_dim_3_price_course_for_trainers_scenario_inperson40 +
+      sce2_rur_dim_3_price_training_design_scenario_inperson40
+    ) ,
+
+    sce2_rur_dim_4_total = (
+      sce2_rur_dim_4_price_teaching_learning_platform +
+      sce2_rur_dim_4_price_management_platform
+    ) ,
+
+    sce2_rur_dim_5_total = (
+      sce2_rur_dim_5_price_central_team +
+      sce2_rur_dim_5_price_regional_team +
+      sce2_rur_dim_5_price_local_team
+    ) 
+  ) |>
+
+  # --- Totais Gerais por Cenário ---
+  mutate(
+    sce2_rur_total_geral_min_dev_online_60 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_min + sce2_rur_dim_3_total_online_60 + sce2_rur_dim_4_total + sce2_rur_dim_5_total,
+    sce2_rur_total_geral_min_dev_online_40 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_min + sce2_rur_dim_3_total_online_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total,
+    sce2_rur_total_geral_min_dev_inperson_40 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_min + sce2_rur_dim_3_total_inperson_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total,
+
+    sce2_rur_total_geral_mild_dev_online_60 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_mild + sce2_rur_dim_3_total_online_60 + sce2_rur_dim_4_total + sce2_rur_dim_5_total,
+    sce2_rur_total_geral_mild_dev_online_40 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_mild + sce2_rur_dim_3_total_online_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total,
+    sce2_rur_total_geral_mild_dev_inperson_40 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_mild + sce2_rur_dim_3_total_inperson_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total,
+
+    sce2_rur_total_geral_comp_dev_online_60 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_comprehensive + sce2_rur_dim_3_total_online_60 + sce2_rur_dim_4_total + sce2_rur_dim_5_total,
+    sce2_rur_total_geral_comp_dev_online_40 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_comprehensive + sce2_rur_dim_3_total_online_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total,
+    sce2_rur_total_geral_comp_dev_inperson_40 = sce2_rur_dim_1_total + sce2_rur_dim_2_total_comprehensive + sce2_rur_dim_3_total_inperson_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total
+  ) |>
+
+  # --- Totais por Aluno e por Escola ---
+  mutate(
+    sce2_rur_total_por_aluno_min_dev_online_60 = sce2_rur_total_geral_min_dev_online_60 / number_of_students,
+    sce2_rur_total_por_aluno_min_dev_online_40 = sce2_rur_total_geral_min_dev_online_40 / number_of_students,
+    sce2_rur_total_por_aluno_min_dev_inperson_40 = sce2_rur_total_geral_min_dev_inperson_40 / number_of_students,
+
+    sce2_rur_total_por_aluno_mild_dev_online_60 = sce2_rur_total_geral_mild_dev_online_60 / number_of_students,
+    sce2_rur_total_por_aluno_mild_dev_online_40 = sce2_rur_total_geral_mild_dev_online_40 / number_of_students,
+    sce2_rur_total_por_aluno_mild_dev_inperson_40 = sce2_rur_total_geral_mild_dev_inperson_40 / number_of_students,
+
+    sce2_rur_total_por_aluno_comp_dev_online_60 = sce2_rur_total_geral_comp_dev_online_60 / number_of_students,
+    sce2_rur_total_por_aluno_comp_dev_online_40 = sce2_rur_total_geral_comp_dev_online_40 / number_of_students,
+    sce2_rur_total_por_aluno_comp_dev_inperson_40 = sce2_rur_total_geral_comp_dev_inperson_40 / number_of_students,
+
+    sce2_rur_total_por_escola_min_dev_online_60 = sce2_rur_total_geral_min_dev_online_60 / number_of_rural_schools,
+    sce2_rur_total_por_escola_min_dev_online_40 = sce2_rur_total_geral_min_dev_online_40 / number_of_rural_schools,
+    sce2_rur_total_por_escola_min_dev_inperson_40 = sce2_rur_total_geral_min_dev_inperson_40 / number_of_rural_schools,
+
+    sce2_rur_total_por_escola_mild_dev_online_60 = sce2_rur_total_geral_mild_dev_online_60 / number_of_rural_schools,
+    sce2_rur_total_por_escola_mild_dev_online_40 = sce2_rur_total_geral_mild_dev_online_40 / number_of_rural_schools,
+    sce2_rur_total_por_escola_mild_dev_inperson_40 = sce2_rur_total_geral_mild_dev_inperson_40 / number_of_rural_schools,
+
+    sce2_rur_total_por_escola_comp_dev_online_60 = sce2_rur_total_geral_comp_dev_online_60 / number_of_rural_schools,
+    sce2_rur_total_por_escola_comp_dev_online_40 = sce2_rur_total_geral_comp_dev_online_40 / number_of_rural_schools,
+    sce2_rur_total_por_escola_comp_dev_inperson_40 = sce2_rur_total_geral_comp_dev_inperson_40 / number_of_rural_schools
+  ) |>
+
+  # --- Faixas ±25% ---
+  mutate(
+    sce2_rur_total_geral_min_dev_online_60_menos_25 = sce2_rur_total_geral_min_dev_online_60 * 0.75,
+    sce2_rur_total_geral_min_dev_online_60_mais_25  = sce2_rur_total_geral_min_dev_online_60 * 1.25,
+
+    sce2_rur_total_geral_min_dev_online_40_menos_25 = sce2_rur_total_geral_min_dev_online_40 * 0.75,
+    sce2_rur_total_geral_min_dev_online_40_mais_25  = sce2_rur_total_geral_min_dev_online_40 * 1.25,
+
+    sce2_rur_total_geral_min_dev_inperson_40_menos_25 = sce2_rur_total_geral_min_dev_inperson_40 * 0.75,
+    sce2_rur_total_geral_min_dev_inperson_40_mais_25  = sce2_rur_total_geral_min_dev_inperson_40 * 1.25,
+
+    sce2_rur_total_geral_mild_dev_online_60_menos_25 = sce2_rur_total_geral_mild_dev_online_60 * 0.75,
+    sce2_rur_total_geral_mild_dev_online_60_mais_25  = sce2_rur_total_geral_mild_dev_online_60 * 1.25,
+
+    sce2_rur_total_geral_mild_dev_online_40_menos_25 = sce2_rur_total_geral_mild_dev_online_40 * 0.75,
+    sce2_rur_total_geral_mild_dev_online_40_mais_25  = sce2_rur_total_geral_mild_dev_online_40 * 1.25,
+
+    sce2_rur_total_geral_mild_dev_inperson_40_menos_25 = sce2_rur_total_geral_mild_dev_inperson_40 * 0.75,
+    sce2_rur_total_geral_mild_dev_inperson_40_mais_25  = sce2_rur_total_geral_mild_dev_inperson_40 * 1.25,
+
+    sce2_rur_total_geral_comp_dev_online_60_menos_25 = sce2_rur_total_geral_comp_dev_online_60 * 0.75,
+    sce2_rur_total_geral_comp_dev_online_60_mais_25  = sce2_rur_total_geral_comp_dev_online_60 * 1.25,
+
+    sce2_rur_total_geral_comp_dev_online_40_menos_25 = sce2_rur_total_geral_comp_dev_online_40 * 0.75,
+    sce2_rur_total_geral_comp_dev_online_40_mais_25  = sce2_rur_total_geral_comp_dev_online_40 * 1.25,
+
+    sce2_rur_total_geral_comp_dev_inperson_40_menos_25 = sce2_rur_total_geral_comp_dev_inperson_40 * 0.75,
+    sce2_rur_total_geral_comp_dev_inperson_40_mais_25  = sce2_rur_total_geral_comp_dev_inperson_40 * 1.25
+  )
+
+```
+
+```{r scen3total}
+
+# -------------------------
+# CENÁRIO 3 – DESENVOLVIMENTO GERAL (sem dispositivos para estudantes)
+# -------------------------
+
+df <- df |>
+  mutate(
+    # --- Dimensão 2: Apenas equipamentos para professores e escolas ---
+    sce3_devt_dim_2_price_device_teacher = dim_2_price_device_teacher,
+    sce3_devt_dim_2_price_device_school = dim_2_price_device_school,
+    sce3_devt_dim_2_price_multimedia_projector = dim_2_price_multimedia_projector,
+
+    # --- Total da Dimensão 2 (em milhões) ---
+    sce3_devt_dim_2_total = (
+      sce3_devt_dim_2_price_device_teacher +
+      sce3_devt_dim_2_price_device_school +
+      sce3_devt_dim_2_price_multimedia_projector
+    ) / 1e6,
+
+    # --- Totais Gerais combinando com demais dimensões existentes ---
+    sce3_devt_total_geral_online_60 = dim_1_total + sce3_devt_dim_2_total + dim_3_total_online_60 + dim_4_total + dim_5_total,
+    sce3_devt_total_geral_online_40 = dim_1_total + sce3_devt_dim_2_total + dim_3_total_online_40 + dim_4_total + dim_5_total,
+    sce3_devt_total_geral_inperson_40 = dim_1_total + sce3_devt_dim_2_total + dim_3_total_inperson_40 + dim_4_total + dim_5_total,
+
+    # --- Faixas de variação ±25% ---
+    sce3_devt_total_geral_online_60_menos_25 = sce3_devt_total_geral_online_60 * 0.75,
+    sce3_devt_total_geral_online_60_mais_25  = sce3_devt_total_geral_online_60 * 1.25,
+
+    sce3_devt_total_geral_online_40_menos_25 = sce3_devt_total_geral_online_40 * 0.75,
+    sce3_devt_total_geral_online_40_mais_25  = sce3_devt_total_geral_online_40 * 1.25,
+
+    sce3_devt_total_geral_inperson_40_menos_25 = sce3_devt_total_geral_inperson_40 * 0.75,
+    sce3_devt_total_geral_inperson_40_mais_25  = sce3_devt_total_geral_inperson_40 * 1.25
+  )
+
+```
+
+```{r formulas}
+
+
+# Funções auxiliares para gerar sequências alfabéticas (A, B, ..., Z, AA, AB, ...)
+excel_columns <- function(n) {
+  if (n <= 0) return(character(0))
+  
+  result <- character(n)
+  
+  for (i in 1:n) {
+    current_num <- i
+    col_name <- ""
+    
+    while (current_num > 0) {
+      remainder <- (current_num - 1) %% 26
+      col_name <- paste0(LETTERS[remainder + 1], col_name)
+      current_num <- (current_num - 1) %/% 26
+    }
+    result[i] <- col_name
+  }
+  return(result)
+}
+
+# 1. Definição do formulas_map com as fórmulas atualizadas, incluindo os cenários (sce1, sce2, sce3)
+
+formulas_map <- c(
+
+    # Dimensões Gerais (dim1 a dim5)
+  "dim_1_price_fiber_exp" = "itu_pop_between_25_50 * number_of_schools * parameter_fiber_exp * reference_fiber_exp_price",
+  "dim_1_price_satellite_service" = "itu_pop_above_50 * number_of_schools * reference_satellite_link_price * type_opex",
+  "dim_1_price_fiber_link" = "itu_pop_below_50 * number_of_schools * (avg_student_per_school) * (reference_fiber_link_price/200) * type_opex",
+  "dim_1_price_access_point" = "(((number_of_students_primary/ 25) + primary_schools_cima * 3)  + ((number_of_students_secondary/ 35) + secondary_schools_cima * 3)) * parameter_access_point * reference_access_point_price",
+  "dim_1_price_firewall" = "number_of_schools * parameter_firewall * reference_firewall_price",
+  "dim_1_price_nobreak" = "number_of_schools * parameter_nobreak * reference_nobreak_price",
+  "dim_1_price_switch" = "number_of_schools * parameter_switch * reference_switch_price",
+  "dim_1_price_rack" = "number_of_schools * parameter_rack * reference_rack_price",
+  "dim_2_price_device_student_min" = "(number_of_students_primary * parameter_min_scenario_primary * reference_tablet_price) + (number_of_students_secondary * parameter_min_scenario_secondary * reference_cloudbook_price)",
+  "dim_2_price_device_student_mild" = "(number_of_students_primary * parameter_mild_scenario_primary * reference_tablet_price) + (number_of_students_secondary * parameter_mild_scenario_secondary * reference_cloudbook_price)",
+  "dim_2_price_device_student_comprehensive" = "(number_of_students_primary * parameter_comprehensive_primary * reference_tablet_price) + (number_of_students_secondary * parameter_comprehensive_secondary * reference_cloudbook_price)",
+  "dim_2_price_device_teacher" = "number_of_teachers * parameter_device_per_teacher * reference_laptop_price",
+  "dim_2_price_device_school" = "number_of_schools * parameter_device_per_school * reference_desktop_price",
+  "dim_2_price_charging_cart_min" = "((number_of_students_primary * parameter_min_scenario_primary) + (number_of_students_secondary * parameter_min_scenario_secondary)) / 30 * reference_charging_cart_price",
+  "dim_2_price_charging_cart_mild" = "((number_of_students_primary * parameter_mild_scenario_primary) + (number_of_students_secondary * parameter_mild_scenario_secondary)) / 30 * reference_charging_cart_price",
+  "dim_2_price_charging_cart_comprehensive" = "((number_of_students_primary * parameter_comprehensive_primary) + (number_of_students_secondary * parameter_comprehensive_secondary)) / 30 * reference_charging_cart_price",
+  "dim_2_price_multimedia_projector" = "number_of_schools * parameter_multimedia_projector * reference_multimedia_projector_price",
+  "dim_2_price_headphones_min_scenario" = "((number_of_students_primary * parameter_min_scenario_primary) + (number_of_students_secondary * parameter_min_scenario_secondary)) * reference_headphone_price",
+  "dim_2_price_headphones_mild_scenario" = "((number_of_students_primary * parameter_mild_scenario_primary) + (number_of_students_secondary * parameter_mild_scenario_secondary)) * reference_headphone_price",
+  "dim_2_price_headphones_comprehensive" = "((number_of_students_primary * parameter_comprehensive_primary) + (number_of_students_secondary * parameter_comprehensive_secondary)) * reference_headphone_price",
+  "dim_3_price_diagnostic_tool" = "reference_price_diagnostic_tool",
+  "dim_3_price_lms_platform" = "reference_price_lms_platform",
+  "dim_3_price_content_production_scenario_online60" = "reference_price_content_production60",
+  "dim_3_price_specialist_trainers_scenario_online60" = "reference_price_trainers60 * (number_of_graduated_teacher / parameter_teacher_class)",
+  "dim_3_price_course_for_trainers_scenario_online60" = "reference_price_trainers60 * 1.5 * (number_of_graduated_teacher / parameter_teacher_class) / parameter_teacher_class",
+  "dim_3_price_training_design_scenario_online60" = "reference_price_training_design",
+  "dim_3_price_content_production_scenario_online40" = "dim_3_price_content_production_scenario_online60 * reference_multiplier40h",
+  "dim_3_price_specialist_trainers_scenario_online40" = "dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier40h",
+  "dim_3_price_course_for_trainers_scenario_online40" = "dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier40h",
+  "dim_3_price_training_design_scenario_online40" = "dim_3_price_training_design_scenario_online60 * reference_multiplier40h",
+  "dim_3_price_content_production_scenario_inperson40" = "dim_3_price_content_production_scenario_online60  * reference_multiplier40h",
+  "dim_3_price_specialist_trainers_scenario_inperson40" = "dim_3_price_specialist_trainers_scenario_online60 *  reference_multiplier_inperson  * reference_multiplier40h",
+  "dim_3_price_course_for_trainers_scenario_inperson40" = "dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier_inperson  * reference_multiplier40h",
+  "dim_3_price_training_design_scenario_inperson40" = "dim_3_price_training_design_scenario_online60 * reference_multiplier_inperson",
+  "dim_5_price_central_team" = "reference_consultant_price * ((parameter_central_team_min + parameter_central_team_max) / 2) * type_opex",
+  "dim_5_price_regional_team" = "parameter_regional_team * number_of_schools * reference_teacher_price * type_opex",
+  "dim_5_price_local_team" = "(parameter_local_team_urban *(number_of_schools- number_of_rural_schools) + (parameter_local_team_rural* number_of_rural_schools)) * reference_teacher_price * type_opex",
+  "dim_4_price_teaching_learning_platform" = "(number_of_students_secondary + number_of_students_primary)  * reference_price_teaching_learning * parameter_teaching_learning * (type_opex / 12)",
+  "dim_4_price_management_platform" = "number_of_schools * reference_price_management_platform * parameter_management * (type_opex / 12)",
+  
+  # Totais Gerais (dim_X_total)
+  "dim_1_total" = "(dim_1_price_fiber_exp + dim_1_price_satellite_service + dim_1_price_fiber_link + dim_1_price_access_point + dim_1_price_firewall + dim_1_price_nobreak + dim_1_price_switch + dim_1_price_rack)/1000000",
+  "dim_2_total_min" = "(dim_2_price_device_student_min + dim_2_price_device_teacher + dim_2_price_device_school + dim_2_price_charging_cart_min + dim_2_price_multimedia_projector + dim_2_price_headphones_min_scenario)/1000000",
+  "dim_2_total_mild" = "(dim_2_price_device_student_mild + dim_2_price_device_teacher + dim_2_price_device_school + dim_2_price_charging_cart_mild + dim_2_price_multimedia_projector + dim_2_price_headphones_mild_scenario)/1000000",
+  "dim_2_total_comprehensive" = "(dim_2_price_device_student_comprehensive + dim_2_price_device_teacher + dim_2_price_device_school + dim_2_price_charging_cart_comprehensive + dim_2_price_multimedia_projector + dim_2_price_headphones_comprehensive)/1000000",
+  "dim_3_total_online_60" = "(dim_3_price_diagnostic_tool + dim_3_price_lms_platform + dim_3_price_content_production_scenario_online60 + dim_3_price_specialist_trainers_scenario_online60 + dim_3_price_course_for_trainers_scenario_online60 + dim_3_price_training_design_scenario_online60)/1000000",
+  "dim_3_total_online_40" = "(dim_3_price_diagnostic_tool + dim_3_price_lms_platform + dim_3_price_content_production_scenario_online40 + dim_3_price_specialist_trainers_scenario_online40 + dim_3_price_course_for_trainers_scenario_online40 + dim_3_price_training_design_scenario_online40)/1000000",
+  "dim_3_total_inperson_40" = "(dim_3_price_diagnostic_tool + dim_3_price_lms_platform + dim_3_price_content_production_scenario_inperson40 + dim_3_price_specialist_trainers_scenario_inperson40 + dim_3_price_course_for_trainers_scenario_inperson40 + dim_3_price_training_design_scenario_inperson40",
+  "dim_4_total" = "(dim_4_price_teaching_learning_platform + dim_4_price_management_platform)/1000000",
+  "dim_5_total" = "(dim_5_price_central_team + dim_5_price_regional_team + dim_5_price_local_team/1000000",
+  
+  # Totais Gerais (em milhares)
+  "total_geral_min_dev_online_60" = "(dim_1_total + dim_2_total_min + dim_3_total_online_60 + dim_4_total + dim_5_total)",
+  "total_geral_min_dev_online_40" = "(dim_1_total + dim_2_total_min + dim_3_total_online_40 + dim_4_total + dim_5_total)",
+  "total_geral_min_dev_inperson_40" = "(dim_1_total + dim_2_total_min + dim_3_total_inperson_40 + dim_4_total + dim_5_total) ",
+  "total_geral_mild_dev_online_60" = "(dim_1_total + dim_2_total_mild + dim_3_total_online_60 + dim_4_total + dim_5_total) ",
+  "total_geral_mild_dev_online_40" = "(dim_1_total + dim_2_total_mild + dim_3_total_online_40 + dim_4_total + dim_5_total) ",
+  "total_geral_mild_dev_inperson_40" = "(dim_1_total + dim_2_total_mild + dim_3_total_inperson_40 + dim_4_total + dim_5_total) ",
+  "total_geral_comp_dev_online_60" = "(dim_1_total + dim_2_total_comprehensive + dim_3_total_online_60 + dim_4_total + dim_5_total) ",
+  "total_geral_comp_dev_online_40" = "(dim_1_total + dim_2_total_comprehensive + dim_3_total_online_40 + dim_4_total + dim_5_total) ",
+  "total_geral_comp_dev_inperson_40" = "(dim_1_total + dim_2_total_comprehensive + dim_3_total_inperson_40 + dim_4_total + dim_5_total) ",
+
+  # Totais por Aluno (em milhares)
+  "total_por_aluno_min_dev_online_60" = "total_geral_min_dev_online_60 / number_of_students",
+  "total_por_aluno_min_dev_online_40" = "total_geral_min_dev_online_40 / number_of_students",
+  "total_por_aluno_min_dev_inperson_40" = "total_geral_min_dev_inperson_40 / number_of_students",
+  "total_por_aluno_mild_dev_online_60" = "total_geral_mild_dev_online_60 / number_of_students",
+  "total_por_aluno_mild_dev_online_40" = "total_geral_mild_dev_online_40 / number_of_students",
+  "total_por_aluno_mild_dev_inperson_40" = "total_geral_mild_dev_inperson_40 / number_of_students",
+  "total_por_aluno_comp_dev_online_60" = "total_geral_comp_dev_online_60 / number_of_students",
+  "total_por_aluno_comp_dev_online_40" = "total_geral_comp_dev_online_40 / number_of_students",
+  "total_por_aluno_comp_dev_inperson_40" = "total_geral_comp_dev_inperson_40 / number_of_students",
+  
+  # Totais por Escola (em milhares)
+  "total_por_escola_min_dev_online_60" = "total_geral_min_dev_online_60 / number_of_schools",
+  "total_por_escola_min_dev_online_40" = "total_geral_min_dev_online_40 / number_of_schools",
+  "total_por_escola_min_dev_inperson_40" = "total_geral_min_dev_inperson_40 / number_of_schools",
+  "total_por_escola_mild_dev_online_60" = "total_geral_mild_dev_online_60 / number_of_schools",
+  "total_por_escola_mild_dev_online_40" = "total_geral_mild_dev_online_40 / number_of_schools",
+  "total_por_escola_mild_dev_inperson_40" = "total_geral_mild_dev_inperson_40 / number_of_schools",
+  "total_por_escola_comp_dev_online_60" = "total_geral_comp_dev_online_60 / number_of_schools",
+  "total_por_escola_comp_dev_online_40" = "total_geral_comp_dev_online_40 / number_of_schools",
+  "total_por_escola_comp_dev_inperson_40" = "total_geral_comp_dev_inperson_40 / number_of_schools",
+
+  # Ranges (+/- 25%)
+  "total_geral_min_dev_online_60_menos_25" = "total_geral_min_dev_online_60 * 0.75",
+  "total_geral_min_dev_online_60_mais_25" = "total_geral_min_dev_online_60 * 1.25",
+  "total_geral_min_dev_online_40_menos_25" = "total_geral_min_dev_online_40 * 0.75",
+  "total_geral_min_dev_online_40_mais_25" = "total_geral_min_dev_online_40 * 1.25",
+  "total_geral_min_dev_inperson_40_menos_25" = "total_geral_min_dev_inperson_40 * 0.75",
+  "total_geral_min_dev_inperson_40_mais_25" = "total_geral_min_dev_inperson_40 * 1.25",
+  "total_geral_mild_dev_online_60_menos_25" = "total_geral_mild_dev_online_60 * 0.75",
+  "total_geral_mild_dev_online_60_mais_25" = "total_geral_mild_dev_online_60 * 1.25",
+  "total_geral_mild_dev_online_40_menos_25" = "total_geral_mild_dev_online_40 * 0.75",
+  "total_geral_mild_dev_online_40_mais_25" = "total_geral_mild_dev_online_40 * 1.25",
+  "total_geral_mild_dev_inperson_40_menos_25" = "total_geral_mild_dev_inperson_40 * 0.75",
+  "total_geral_mild_dev_inperson_40_mais_25" = "total_geral_mild_dev_inperson_40 * 1.25",
+  "total_geral_comp_dev_online_60_menos_25" = "total_geral_comp_dev_online_60 * 0.75",
+  "total_geral_comp_dev_online_60_mais_25" = "total_geral_comp_dev_online_60 * 1.25",
+  "total_geral_comp_dev_online_40_menos_25" = "total_geral_comp_dev_online_40 * 0.75",
+  "total_geral_comp_dev_online_40_mais_25" = "total_geral_comp_dev_online_40 * 1.25",
+  "total_geral_comp_dev_inperson_40_menos_25" = "total_geral_comp_dev_inperson_40 * 0.75",
+  "total_geral_comp_dev_inperson_40_mais_25" = "total_geral_comp_dev_inperson_40 * 1.25",
+
+  # CENÁRIO 3 – DESENVOLVIMENTO GERAL (sem dispositivos para estudantes) (sce3_devt)
+  "sce3_devt_dim_2_price_device_teacher" = "dim_2_price_device_teacher",
+  "sce3_devt_dim_2_price_device_school" = "dim_2_price_device_school",
+  "sce3_devt_dim_2_price_multimedia_projector" = "dim_2_price_multimedia_projector",
+  "sce3_devt_dim_2_total" = "(sce3_devt_dim_2_price_device_teacher + sce3_devt_dim_2_price_device_school + sce3_devt_dim_2_price_multimedia_projector) / 1e6",
+  "sce3_devt_total_geral_online_60" = "dim_1_total + sce3_devt_dim_2_total + dim_3_total_online_60 + dim_4_total + dim_5_total",
+  "sce3_devt_total_geral_online_40" = "dim_1_total + sce3_devt_dim_2_total + dim_3_total_online_40 + dim_4_total + dim_5_total",
+  "sce3_devt_total_geral_inperson_40" = "dim_1_total + sce3_devt_dim_2_total + dim_3_total_inperson_40 + dim_4_total + dim_5_total",
+  "sce3_devt_total_geral_online_60_menos_25" = "sce3_devt_total_geral_online_60 * 0.75",
+  "sce3_devt_total_geral_online_60_mais_25" = "sce3_devt_total_geral_online_60 * 1.25",
+  "sce3_devt_total_geral_online_40_menos_25" = "sce3_devt_total_geral_online_40 * 0.75",
+  "sce3_devt_total_geral_online_40_mais_25" = "sce3_devt_total_geral_online_40 * 1.25",
+  "sce3_devt_total_geral_inperson_40_menos_25" = "sce3_devt_total_geral_inperson_40 * 0.75",
+  "sce3_devt_total_geral_inperson_40_mais_25" = "sce3_devt_total_geral_inperson_40 * 1.25",
+
+  # Cenário 1 - Secondary Schools (sce1_sec)
+  "sce1_sec_dim_1_price_fiber_exp" = "itu_pop_between_25_50 * secondary_schools_cima * parameter_fiber_exp * reference_fiber_exp_price",
+  "sce1_sec_dim_1_price_satellite_service" = "itu_pop_above_50 * secondary_schools_cima * reference_satellite_link_price * type_opex",
+  "sce1_sec_dim_1_price_fiber_link" = "itu_pop_below_50 * secondary_schools_cima * avg_student_per_school * (reference_fiber_link_price/200) * type_opex",
+  "sce1_sec_dim_1_price_access_point" = "((number_of_students_secondary/ 35) + secondary_schools_cima * 3) * parameter_access_point * reference_access_point_price",
+  "sce1_sec_dim_1_price_firewall" = "secondary_schools_cima * parameter_firewall * reference_firewall_price",
+  "sce1_sec_dim_1_price_nobreak" = "secondary_schools_cima * parameter_nobreak * reference_nobreak_price",
+  "sce1_sec_dim_1_price_switch" = "secondary_schools_cima * parameter_switch * reference_switch_price",
+  "sce1_sec_dim_1_price_rack" = "secondary_schools_cima * parameter_rack * reference_rack_price",
+  "sce1_sec_dim_2_price_device_student_min" = "number_of_students_secondary * parameter_min_scenario_secondary * reference_cloudbook_price",
+  "sce1_sec_dim_2_price_device_student_mild" = "number_of_students_secondary * parameter_mild_scenario_secondary * reference_cloudbook_price",
+  "sce1_sec_dim_2_price_device_student_comprehensive" = "number_of_students_secondary * parameter_comprehensive_secondary * reference_cloudbook_price",
+  "sce1_sec_dim_2_price_device_teacher" = "(number_of_teachers * (number_of_students_secondary / (number_of_students))) * parameter_device_per_teacher * reference_laptop_price",
+  "sce1_sec_dim_2_price_device_school" = "secondary_schools_cima * parameter_device_per_school * reference_desktop_price",
+  "sce1_sec_dim_2_price_charging_cart_min" = "(number_of_students_secondary * parameter_min_scenario_secondary) / 30 * reference_charging_cart_price",
+  "sce1_sec_dim_2_price_charging_cart_mild" = "(number_of_students_secondary * parameter_mild_scenario_secondary) / 30 * reference_charging_cart_price",
+  "sce1_sec_dim_2_price_charging_cart_comprehensive" = "(number_of_students_secondary * parameter_comprehensive_secondary) / 30 * reference_charging_cart_price",
+  "sce1_sec_dim_2_price_multimedia_projector" = "secondary_schools_cima * parameter_multimedia_projector * reference_multimedia_projector_price",
+  "sce1_sec_dim_2_price_headphones_min_scenario" = "(number_of_students_secondary * parameter_min_scenario_secondary) * reference_headphone_price",
+  "sce1_sec_dim_2_price_headphones_mild_scenario" = "(number_of_students_secondary * parameter_mild_scenario_secondary) * reference_headphone_price",
+  "sce1_sec_dim_2_price_headphones_comprehensive" = "(number_of_students_secondary * parameter_comprehensive_secondary) * reference_headphone_price",
+  "sce1_sec_dim_3_price_diagnostic_tool" = "reference_price_diagnostic_tool",
+  "sce1_sec_dim_3_price_lms_platform" = "reference_price_lms",
+  "sce1_sec_dim_3_price_content_production_scenario_online60" = "reference_price_content_production60",
+  "sce1_sec_dim_3_price_specialist_trainers_scenario_online60" = "reference_price_trainers60 * ((number_of_teachers * (number_of_students_secondary / (number_of_students_primary + number_of_students_secondary))) / parameter_teacher_class)",
+  "sce1_sec_dim_3_price_course_for_trainers_scenario_online60" = "reference_teacher_price * ((number_of_teachers * (number_of_students_secondary / (number_of_students_primary + number_of_students_secondary))) / parameter_teacher_class) / parameter_teacher_class",
+  "sce1_sec_dim_3_price_training_design_scenario_online60" = "reference_price_training_design",
+  "sce1_sec_dim_3_price_content_production_scenario_online40" = "sce1_sec_dim_3_price_content_production_scenario_online60 * reference_multiplier40h",
+  "sce1_sec_dim_3_price_specialist_trainers_scenario_online40" = "sce1_sec_dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier40h",
+  "sce1_sec_dim_3_price_course_for_trainers_scenario_online40" = "sce1_sec_dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier40h",
+  "sce1_sec_dim_3_price_training_design_scenario_online40" = "sce1_sec_dim_3_price_training_design_scenario_online60 * reference_multiplier40h",
+  "sce1_sec_dim_3_price_content_production_scenario_inperson40" = "sce1_sec_dim_3_price_content_production_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h",
+  "sce1_sec_dim_3_price_specialist_trainers_scenario_inperson40" = "sce1_sec_dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h",
+  "sce1_sec_dim_3_price_course_for_trainers_scenario_inperson40" = "sce1_sec_dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h",
+  "sce1_sec_dim_3_price_training_design_scenario_inperson40" = "sce1_sec_dim_3_price_training_design_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h",
+  "sce1_sec_dim_4_price_teaching_learning_platform" = "number_of_students_secondary * reference_price_teaching_learning * parameter_teaching_learning * (type_opex / 12)",
+  "sce1_sec_dim_4_price_management_platform" = "secondary_schools_cima * reference_price_management_platform * parameter_management * (type_opex / 12)",
+  "sce1_sec_dim_5_price_central_team" = "reference_consultant_price * ((parameter_central_team_min + parameter_central_team_max) / 2) * type_opex",
+  "sce1_sec_dim_5_price_regional_team" = "parameter_regional_team * secondary_schools_cima * reference_teacher_price * type_opex",
+  "sce1_sec_dim_5_price_local_team" = "(parameter_local_team_urban *(secondary_schools_cima/number_of_schools)*(number_of_schools- number_of_rural_schools) + (secondary_schools_cima/number_of_schools)*(parameter_local_team_rural* number_of_rural_schools)) * reference_teacher_price *type_opex",
+  "sce1_sec_dim_1_total" = "(sce1_sec_dim_1_price_fiber_exp + sce1_sec_dim_1_price_satellite_service + sce1_sec_dim_1_price_fiber_link + sce1_sec_dim_1_price_access_point + sce1_sec_dim_1_price_firewall + sce1_sec_dim_1_price_nobreak + sce1_sec_dim_1_price_switch + sce1_sec_dim_1_price_rack)/1000000",
+  "sce1_sec_dim_2_total_min" = "(sce1_sec_dim_2_price_device_student_min + sce1_sec_dim_2_price_device_teacher + sce1_sec_dim_2_price_device_school + sce1_sec_dim_2_price_charging_cart_min + sce1_sec_dim_2_price_multimedia_projector + sce1_sec_dim_2_price_headphones_min_scenario)/1000000",
+  "sce1_sec_dim_2_total_mild" = "(sce1_sec_dim_2_price_device_student_mild + sce1_sec_dim_2_price_device_teacher + sce1_sec_dim_2_price_device_school + sce1_sec_dim_2_price_charging_cart_mild + sce1_sec_dim_2_price_multimedia_projector + sce1_sec_dim_2_price_headphones_mild_scenario)/1000000",
+  "sce1_sec_dim_2_total_comprehensive" = "(sce1_sec_dim_2_price_device_student_comprehensive + sce1_sec_dim_2_price_device_teacher + sce1_sec_dim_2_price_device_school + sce1_sec_dim_2_price_charging_cart_comprehensive + sce1_sec_dim_2_price_multimedia_projector + sce1_sec_dim_2_price_headphones_comprehensive)/1000000",
+  "sce1_sec_dim_3_total_online_60" = "(sce1_sec_dim_3_price_diagnostic_tool + sce1_sec_dim_3_price_lms_platform + sce1_sec_dim_3_price_content_production_scenario_online60 + sce1_sec_dim_3_price_specialist_trainers_scenario_online60 + sce1_sec_dim_3_price_course_for_trainers_scenario_online60 + sce1_sec_dim_3_price_training_design_scenario_online60)/1000000",
+  "sce1_sec_dim_3_total_online_40" = "(sce1_sec_dim_3_price_diagnostic_tool + sce1_sec_dim_3_price_lms_platform + sce1_sec_dim_3_price_content_production_scenario_online40 + sce1_sec_dim_3_price_specialist_trainers_scenario_online40 + sce1_sec_dim_3_price_course_for_trainers_scenario_online40 + sce1_sec_dim_3_price_training_design_scenario_online40)/1000000",
+  "sce1_sec_dim_3_total_inperson_40" = "(sce1_sec_dim_3_price_diagnostic_tool + sce1_sec_dim_3_price_lms_platform + sce1_sec_dim_3_price_content_production_scenario_inperson40 + sce1_sec_dim_3_price_specialist_trainers_scenario_inperson40 + sce1_sec_dim_3_price_course_for_trainers_scenario_inperson40 + sce1_sec_dim_3_price_training_design_scenario_inperson40)/1000000",
+  "sce1_sec_dim_4_total" = "(sce1_sec_dim_4_price_teaching_learning_platform + sce1_sec_dim_4_price_management_platform)/1000000",
+  "sce1_sec_dim_5_total" = "(sce1_sec_dim_5_price_central_team + sce1_sec_dim_5_price_regional_team + sce1_sec_dim_5_price_local_team)/1000000",
+  "sce1_sec_total_geral_min_dev_online_60" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_min + sce1_sec_dim_3_total_online_60 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_geral_min_dev_online_40" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_min + sce1_sec_dim_3_total_online_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_geral_min_dev_inperson_40" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_min + sce1_sec_dim_3_total_inperson_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_geral_mild_dev_online_60" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_mild + sce1_sec_dim_3_total_online_60 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_geral_mild_dev_online_40" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_mild + sce1_sec_dim_3_total_online_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_geral_mild_dev_inperson_40" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_mild + sce1_sec_dim_3_total_inperson_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_geral_comp_dev_online_60" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_comprehensive + sce1_sec_dim_3_total_online_60 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_geral_comp_dev_online_40" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_comprehensive + sce1_sec_dim_3_total_online_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_geral_comp_dev_inperson_40" = "sce1_sec_dim_1_total + sce1_sec_dim_2_total_comprehensive + sce1_sec_dim_3_total_inperson_40 + sce1_sec_dim_4_total + sce1_sec_dim_5_total",
+  "sce1_sec_total_por_aluno_min_dev_online_60" = "sce1_sec_total_geral_min_dev_online_60 / number_of_students_secondary",
+  "sce1_sec_total_por_aluno_min_dev_online_40" = "sce1_sec_total_geral_min_dev_online_40 / number_of_students_secondary",
+  "sce1_sec_total_por_aluno_min_dev_inperson_40" = "sce1_sec_total_geral_min_dev_inperson_40 / number_of_students_secondary",
+  "sce1_sec_total_por_aluno_mild_dev_online_60" = "sce1_sec_total_geral_mild_dev_online_60 / number_of_students_secondary",
+  "sce1_sec_total_por_aluno_mild_dev_online_40" = "sce1_sec_total_geral_mild_dev_online_40 / number_of_students_secondary",
+  "sce1_sec_total_por_aluno_mild_dev_inperson_40" = "sce1_sec_total_geral_mild_dev_inperson_40 / number_of_students_secondary",
+  "sce1_sec_total_por_aluno_comp_dev_online_60" = "sce1_sec_total_geral_comp_dev_online_60 / number_of_students_secondary",
+  "sce1_sec_total_por_aluno_comp_dev_online_40" = "sce1_sec_total_geral_comp_dev_online_40 / number_of_students_secondary",
+  "sce1_sec_total_por_aluno_comp_dev_inperson_40" = "sce1_sec_total_geral_comp_dev_inperson_40 / number_of_students_secondary",
+  "sce1_sec_total_por_escola_min_dev_online_60" = "sce1_sec_total_geral_min_dev_online_60 / secondary_schools_cima",
+  "sce1_sec_total_por_escola_min_dev_online_40" = "sce1_sec_total_geral_min_dev_online_40 / secondary_schools_cima",
+  "sce1_sec_total_por_escola_min_dev_inperson_40" = "sce1_sec_total_geral_min_dev_inperson_40 / secondary_schools_cima",
+  "sce1_sec_total_por_escola_mild_dev_online_60" = "sce1_sec_total_geral_mild_dev_online_60 / secondary_schools_cima",
+  "sce1_sec_total_por_escola_mild_dev_online_40" = "sce1_sec_total_geral_mild_dev_online_40 / secondary_schools_cima",
+  "sce1_sec_total_por_escola_mild_dev_inperson_40" = "sce1_sec_total_geral_mild_dev_inperson_40 / secondary_schools_cima",
+  "sce1_sec_total_por_escola_comp_dev_online_60" = "sce1_sec_total_geral_comp_dev_online_60 / secondary_schools_cima",
+  "sce1_sec_total_por_escola_comp_dev_online_40" = "sce1_sec_total_geral_comp_dev_online_40 / secondary_schools_cima",
+  "sce1_sec_total_por_escola_comp_dev_inperson_40" = "sce1_sec_total_geral_comp_dev_inperson_40 / secondary_schools_cima",
+  "sce1_sec_total_geral_min_dev_online_60_menos_25" = "sce1_sec_total_geral_min_dev_online_60 * 0.75",
+  "sce1_sec_total_geral_min_dev_online_60_mais_25" = "sce1_sec_total_geral_min_dev_online_60 * 1.25",
+  "sce1_sec_total_geral_min_dev_online_40_menos_25" = "sce1_sec_total_geral_min_dev_online_40 * 0.75",
+  "sce1_sec_total_geral_min_dev_online_40_mais_25" = "sce1_sec_total_geral_min_dev_online_40 * 1.25",
+  "sce1_sec_total_geral_min_dev_inperson_40_menos_25" = "sce1_sec_total_geral_min_dev_inperson_40 * 0.75",
+  "sce1_sec_total_geral_min_dev_inperson_40_mais_25" = "sce1_sec_total_geral_min_dev_inperson_40 * 1.25",
+  "sce1_sec_total_geral_mild_dev_online_60_menos_25" = "sce1_sec_total_geral_mild_dev_online_60 * 0.75",
+  "sce1_sec_total_geral_mild_dev_online_60_mais_25" = "sce1_sec_total_geral_mild_dev_online_60 * 1.25",
+  "sce1_sec_total_geral_mild_dev_online_40_menos_25" = "sce1_sec_total_geral_mild_dev_online_40 * 0.75",
+  "sce1_sec_total_geral_mild_dev_online_40_mais_25" = "sce1_sec_total_geral_mild_dev_online_40 * 1.25",
+  "sce1_sec_total_geral_mild_dev_inperson_40_menos_25" = "sce1_sec_total_geral_mild_dev_inperson_40 * 0.75",
+  "sce1_sec_total_geral_mild_dev_inperson_40_mais_25" = "sce1_sec_total_geral_mild_dev_inperson_40 * 1.25",
+  "sce1_sec_total_geral_comp_dev_online_60_menos_25" = "sce1_sec_total_geral_comp_dev_online_60 * 0.75",
+  "sce1_sec_total_geral_comp_dev_online_60_mais_25" = "sce1_sec_total_geral_comp_dev_online_60 * 1.25",
+  "sce1_sec_total_geral_comp_dev_online_40_menos_25" = "sce1_sec_total_geral_comp_dev_online_40 * 0.75",
+  "sce1_sec_total_geral_comp_dev_online_40_mais_25" = "sce1_sec_total_geral_comp_dev_online_40 * 1.25",
+  "sce1_sec_total_geral_comp_dev_inperson_40_menos_25" = "sce1_sec_total_geral_comp_dev_inperson_40 * 0.75",
+  "sce1_sec_total_geral_comp_dev_inperson_40_mais_25" = "sce1_sec_total_geral_comp_dev_inperson_40 * 1.25",
+
+  # Cenário 2 - Rural Schools (sce2_rur)
+  "sce2_rur_dim_1_price_satellite_service" = "pmin(number_of_rural_schools, itu_pop_above_50 * number_of_schools) * reference_satellite_link_price * type_opex",
+  "sce2_rur_dim_1_price_fiber_exp" = "pmin(number_of_rural_schools- pmin(number_of_rural_schools, (itu_pop_above_50 * number_of_schools)), itu_pop_between_25_50 * number_of_schools ) * parameter_fiber_exp * reference_fiber_exp_price,",
+  "sce2_rur_dim_1_price_fiber_link" = "(number_of_rural_schools - pmin(number_of_rural_schools, itu_pop_above_50)) * (avg_student_per_school)*(reference_fiber_link_price / 200) * type_opex",
+  "sce2_rur_dim_1_price_access_point" =   " ((number_of_students_primary/ 25) + primary_schools_cima * 3)  + ((number_of_students_secondary/ 35) + secondary_schools_cima * 3) * (number_of_rural_schools / number_of_schools) * parameter_access_point * reference_access_point_price,",
+  "sce2_rur_dim_1_price_firewall" = "number_of_rural_schools * parameter_firewall * reference_firewall_price",
+  "sce2_rur_dim_1_price_nobreak" = "number_of_rural_schools * parameter_nobreak * reference_nobreak_price",
+  "sce2_rur_dim_1_price_switch" = "number_of_rural_schools * parameter_switch * reference_switch_price",
+  "sce2_rur_dim_1_price_rack" = "number_of_rural_schools * parameter_rack * reference_rack_price",
+  "sce2_rur_dim_2_price_device_student_min" = "((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_primary * reference_tablet_price) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_secondary * reference_cloudbook_price)",
+  "sce2_rur_dim_2_price_device_student_mild" = "((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_primary * reference_tablet_price) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_secondary * reference_cloudbook_price)",
+  "sce2_rur_dim_2_price_device_student_comprehensive" = "((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_primary * reference_tablet_price) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_secondary * reference_cloudbook_price)",
+  "sce2_rur_dim_2_price_device_teacher" = "(number_of_teachers * (number_of_rural_schools / number_of_schools)) * parameter_device_per_teacher * reference_laptop_price",
+  "sce2_rur_dim_2_price_device_school" = "number_of_rural_schools * parameter_device_per_school * reference_desktop_price",
+  "sce2_rur_dim_2_price_charging_cart_min" = "(((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_primary) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_secondary)) / 30 * reference_charging_cart_price",
+  "sce2_rur_dim_2_price_charging_cart_mild" = "(((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_primary) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_secondary)) / 30 * reference_charging_cart_price",
+  "sce2_rur_dim_2_price_charging_cart_comprehensive" = "(((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_primary) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_secondary)) / 30 * reference_charging_cart_price",
+  "sce2_rur_dim_2_price_multimedia_projector" = "number_of_rural_schools * parameter_multimedia_projector * reference_multimedia_projector_price",
+  "sce2_rur_dim_2_price_headphones_min_scenario" = "(((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_primary) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_min_scenario_secondary)) * reference_headphone_price",
+  "sce2_rur_dim_2_price_headphones_mild_scenario" = "(((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_primary) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_mild_scenario_secondary)) * reference_headphone_price",
+  "sce2_rur_dim_2_price_headphones_comprehensive" = "(((number_of_students_primary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_primary) + ((number_of_students_secondary * (number_of_rural_schools / number_of_schools)) * parameter_comprehensive_secondary)) * reference_headphone_price",
+  "sce2_rur_dim_3_price_diagnostic_tool" = "reference_price_diagnostic_tool",
+  "sce2_rur_dim_3_price_lms_platform" = "reference_price_lms",
+  "sce2_rur_dim_3_price_content_production_scenario_online60" = "reference_price_content_production60",
+  "sce2_rur_dim_3_price_specialist_trainers_scenario_online60" = "reference_price_trainers60 * ((number_of_teachers * (number_of_rural_schools / number_of_schools)) / parameter_teacher_class)",
+  "sce2_rur_dim_3_price_course_for_trainers_scenario_online60" = "reference_teacher_price * ((number_of_teachers * (number_of_rural_schools / number_of_schools)) / parameter_teacher_class) / parameter_teacher_class",
+  "sce2_rur_dim_3_price_training_design_scenario_online60" = "reference_price_training_design",
+  "sce2_rur_dim_3_price_content_production_scenario_online40" = "sce2_rur_dim_3_price_content_production_scenario_online60 * reference_multiplier40h",
+  "sce2_rur_dim_3_price_specialist_trainers_scenario_online40" = "sce2_rur_dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier40h",
+  "sce2_rur_dim_3_price_course_for_trainers_scenario_online40" = "sce2_rur_dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier40h",
+  "sce2_rur_dim_3_price_training_design_scenario_online40" = "sce2_rur_dim_3_price_training_design_scenario_online60 * reference_multiplier40h",
+  "sce2_rur_dim_3_price_content_production_scenario_inperson40" = "sce2_rur_dim_3_price_content_production_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h",
+  "sce2_rur_dim_3_price_specialist_trainers_scenario_inperson40" = "sce2_rur_dim_3_price_specialist_trainers_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h",
+  "sce2_rur_dim_3_price_course_for_trainers_scenario_inperson40" = "sce2_rur_dim_3_price_course_for_trainers_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h",
+  "sce2_rur_dim_3_price_training_design_scenario_inperson40" = "sce2_rur_dim_3_price_training_design_scenario_online60 * reference_multiplier_inperson * reference_multiplier40h",
+  "sce2_rur_dim_4_price_teaching_learning_platform" = "((number_of_students_secondary + number_of_students_primary) * (number_of_rural_schools / number_of_schools)) * reference_price_teaching_learning * parameter_teaching_learning * (type_opex / 12)",
+  "sce2_rur_dim_4_price_management_platform" = "number_of_rural_schools * reference_price_management_platform * parameter_management * (type_opex / 12)",
+  "sce2_rur_dim_5_price_central_team" = "reference_consultant_price * ((parameter_central_team_min + parameter_central_team_max) / 2) * type_opex",
+  "sce2_rur_dim_5_price_regional_team" = "parameter_regional_team * number_of_rural_schools * reference_teacher_price * type_opex",
+  "sce2_rur_dim_5_price_local_team" = "parameter_local_team * number_of_rural_schools * reference_teacher_price * type_opex",
+  "sce2_rur_dim_1_total" = "(sce2_rur_dim_1_price_fiber_exp + sce2_rur_dim_1_price_satellite_service + sce2_rur_dim_1_price_fiber_link + sce2_rur_dim_1_price_access_point + sce2_rur_dim_1_price_firewall + sce2_rur_dim_1_price_nobreak + sce2_rur_dim_1_price_switch + sce2_rur_dim_1_price_rack) / 1e6",
+  "sce2_rur_dim_2_total_min" = "(sce2_rur_dim_2_price_device_student_min + sce2_rur_dim_2_price_device_teacher + sce2_rur_dim_2_price_device_school + sce2_rur_dim_2_price_charging_cart_min + sce2_rur_dim_2_price_multimedia_projector + sce2_rur_dim_2_price_headphones_min_scenario) / 1e6",
+  "sce2_rur_dim_2_total_mild" = "(sce2_rur_dim_2_price_device_student_mild + sce2_rur_dim_2_price_device_teacher + sce2_rur_dim_2_price_device_school + sce2_rur_dim_2_price_charging_cart_mild + sce2_rur_dim_2_price_multimedia_projector + sce2_rur_dim_2_price_headphones_mild_scenario) / 1e6",
+  "sce2_rur_dim_2_total_comprehensive" = "(sce2_rur_dim_2_price_device_student_comprehensive + sce2_rur_dim_2_price_device_teacher + sce2_rur_dim_2_price_device_school + sce2_rur_dim_2_price_charging_cart_comprehensive + sce2_rur_dim_2_price_multimedia_projector + sce2_rur_dim_2_price_headphones_comprehensive) / 1e6",
+  "sce2_rur_dim_3_total_online_60" = "(sce2_rur_dim_3_price_diagnostic_tool + sce2_rur_dim_3_price_lms_platform + sce2_rur_dim_3_price_content_production_scenario_online60 + sce2_rur_dim_3_price_specialist_trainers_scenario_online60 + sce2_rur_dim_3_price_course_for_trainers_scenario_online60 + sce2_rur_dim_3_price_training_design_scenario_online60) / 1e6",
+  "sce2_rur_dim_3_total_online_40" = "(sce2_rur_dim_3_price_diagnostic_tool + sce2_rur_dim_3_price_lms_platform + sce2_rur_dim_3_price_content_production_scenario_online40 + sce2_rur_dim_3_price_specialist_trainers_scenario_online40 + sce2_rur_dim_3_price_course_for_trainers_scenario_online40 + sce2_rur_dim_3_price_training_design_scenario_online40) / 1e6",
+  "sce2_rur_dim_3_total_inperson_40" = "(sce2_rur_dim_3_price_diagnostic_tool + sce2_rur_dim_3_price_lms_platform + sce2_rur_dim_3_price_content_production_scenario_inperson40 + sce2_rur_dim_3_price_specialist_trainers_scenario_inperson40 + sce2_rur_dim_3_price_course_for_trainers_scenario_inperson40 + sce2_rur_dim_3_price_training_design_scenario_inperson40) / 1e6",
+  "sce2_rur_dim_4_total" = "(sce2_rur_dim_4_price_teaching_learning_platform + sce2_rur_dim_4_price_management_platform) / 1e6",
+  "sce2_rur_dim_5_total" = "(sce2_rur_dim_5_price_central_team + sce2_rur_dim_5_price_regional_team + sce2_rur_dim_5_price_local_team) / 1e6",
+  "sce2_rur_total_geral_min_dev_online_60" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_min + sce2_rur_dim_3_total_online_60 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_geral_min_dev_online_40" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_min + sce2_rur_dim_3_total_online_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_geral_min_dev_inperson_40" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_min + sce2_rur_dim_3_total_inperson_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_geral_mild_dev_online_60" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_mild + sce2_rur_dim_3_total_online_60 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_geral_mild_dev_online_40" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_mild + sce2_rur_dim_3_total_online_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_geral_mild_dev_inperson_40" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_mild + sce2_rur_dim_3_total_inperson_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_geral_comp_dev_online_60" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_comprehensive + sce2_rur_dim_3_total_online_60 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_geral_comp_dev_online_40" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_comprehensive + sce2_rur_dim_3_total_online_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_geral_comp_dev_inperson_40" = "sce2_rur_dim_1_total + sce2_rur_dim_2_total_comprehensive + sce2_rur_dim_3_total_inperson_40 + sce2_rur_dim_4_total + sce2_rur_dim_5_total",
+  "sce2_rur_total_por_aluno_min_dev_online_60" = "sce2_rur_total_geral_min_dev_online_60 / number_of_students",
+  "sce2_rur_total_por_aluno_min_dev_online_40" = "sce2_rur_total_geral_min_dev_online_40 / number_of_students",
+  "sce2_rur_total_por_aluno_min_dev_inperson_40" = "sce2_rur_total_geral_min_dev_inperson_40 / number_of_students",
+  "sce2_rur_total_por_aluno_mild_dev_online_60" = "sce2_rur_total_geral_mild_dev_online_60 / number_of_students",
+  "sce2_rur_total_por_aluno_mild_dev_online_40" = "sce2_rur_total_geral_mild_dev_online_40 / number_of_students",
+  "sce2_rur_total_por_aluno_mild_dev_inperson_40" = "sce2_rur_total_geral_mild_dev_inperson_40 / number_of_students",
+  "sce2_rur_total_por_aluno_comp_dev_online_60" = "sce2_rur_total_geral_comp_dev_online_60 / number_of_students",
+  "sce2_rur_total_por_aluno_comp_dev_online_40" = "sce2_rur_total_geral_comp_dev_online_40 / number_of_students",
+  "sce2_rur_total_por_aluno_comp_dev_inperson_40" = "sce2_rur_total_geral_comp_dev_inperson_40 / number_of_students",
+  "sce2_rur_total_por_escola_min_dev_online_60" = "sce2_rur_total_geral_min_dev_online_60 / number_of_rural_schools",
+  "sce2_rur_total_por_escola_min_dev_online_40" = "sce2_rur_total_geral_min_dev_online_40 / number_of_rural_schools",
+  "sce2_rur_total_por_escola_min_dev_inperson_40" = "sce2_rur_total_geral_min_dev_inperson_40 / number_of_rural_schools",
+  # ... (Fórmulas restantes de sce2_rur do código fornecido) ...
+
+  # Fórmulas de Faixas de Variação (+/- 25%) para sce2_rur (baseadas no trecho parcial do código fornecido no PDF e na lógica padrão)
+  # O trecho final do código R fornecido não inclui explicitamente todas as fórmulas de variação de sce2_rur, mas inclui a lógica para total_por_escola.
+
+  # Fórmulas de Faixas de Variação (+/- 25%) para sce2_rur (Baseado em código anterior e contexto)
+  "sce2_rur_total_geral_min_dev_online_60_menos_25" = "sce2_rur_total_geral_min_dev_online_60 * 0.75",
+  "sce2_rur_total_geral_min_dev_online_60_mais_25" = "sce2_rur_total_geral_min_dev_online_60 * 1.25",
+  "sce2_rur_total_geral_min_dev_online_40_menos_25" = "sce2_rur_total_geral_min_dev_online_40 * 0.75",
+  "sce2_rur_total_geral_min_dev_online_40_mais_25" = "sce2_rur_total_geral_min_dev_online_40 * 1.25",
+  "sce2_rur_total_geral_min_dev_inperson_40_menos_25" = "sce2_rur_total_geral_min_dev_inperson_40 * 0.75",
+  "sce2_rur_total_geral_min_dev_inperson_40_mais_25" = "sce2_rur_total_geral_min_dev_inperson_40 * 1.25",
+  "sce2_rur_total_geral_mild_dev_online_60_menos_25" = "sce2_rur_total_geral_mild_dev_online_60 * 0.75",
+  "sce2_rur_total_geral_mild_dev_online_60_mais_25" = "sce2_rur_total_geral_mild_dev_online_60 * 1.25",
+  "sce2_rur_total_geral_mild_dev_online_40_menos_25" = "sce2_rur_total_geral_mild_dev_online_40 * 0.75",
+  "sce2_rur_total_geral_mild_dev_online_40_mais_25" = "sce2_rur_total_geral_mild_dev_online_40 * 1.25",
+  "sce2_rur_total_geral_mild_dev_inperson_40_menos_25" = "sce2_rur_total_geral_mild_dev_inperson_40 * 0.75",
+  "sce2_rur_total_geral_mild_dev_inperson_40_mais_25" = "sce2_rur_total_geral_mild_dev_inperson_40 * 1.25",
+  "sce2_rur_total_geral_comp_dev_online_60_menos_25" = "sce2_rur_total_geral_comp_dev_online_60 * 0.75",
+  "sce2_rur_total_geral_comp_dev_online_60_mais_25" = "sce2_rur_total_geral_comp_dev_online_60 * 1.25",
+  "sce2_rur_total_geral_comp_dev_online_40_menos_25" = "sce2_rur_total_geral_comp_dev_online_40 * 0.75",
+  "sce2_rur_total_geral_comp_dev_online_40_mais_25" = "sce2_rur_total_geral_comp_dev_online_40 * 1.25",
+  "sce2_rur_total_geral_comp_dev_inperson_40_menos_25" = "sce2_rur_total_geral_comp_dev_inperson_40 * 0.75",
+  "sce2_rur_total_geral_comp_dev_inperson_40_mais_25" = "sce2_rur_total_geral_comp_dev_inperson_40 * 1.25"
+)
+
+```
+
+```{r dicionario}
+excel_column_id <- function(n) {
+  if (n < 1) {
+    return(NA)
+  }
+  
+  result <- ""
+  while (n > 0) {
+    remainder <- (n - 1) %% 26
+    result <- paste0(LETTERS[remainder + 1], result)
+    n <- (n - remainder) %/% 26
+  }
+  return(result)
+}
+
+
+# --- Parte principal: Construção do df_dictionario ---
+
+
+
+# 1. Obter a ordem das colunas do seu dataframe 'df'
+column_order_from_df <- names(df)
+
+# 2. Gerar os IDs alfabéticos para cada coluna na ordem do 'df'
+num_cols <- length(column_order_from_df)
+alphabetic_ids <- sapply(1:num_cols, excel_column_id)
+
+# 3. Criar o dataframe df_dictionario inicial com ID e Nomes das Colunas na ordem correta
+# ID_Coluna será a primeira coluna.
+df_dictionario <- data.frame(
+  ID_Coluna = alphabetic_ids,
+  Coluna = column_order_from_df,
+  stringsAsFactors = FALSE
+)
+
+# 4. Preparar o vetor 'formula_map' para o 'join'.
+# Assumimos que 'formula_map' é um VETOR NOMEADO, onde os NOMES são os nomes das colunas
+# e os VALORES são as descrições.
+# Se 'formula_map' não for nomeado, esta parte precisará ser adaptada.
+formulas_map_df_para_join <- tibble::enframe(formulas_map, 
+                                            name = "Coluna", 
+                                            value = "Descricao_do_Mapa")
+
+# 5. Realizar o left_join para adicionar as descrições.
+# O 'left_join' garantirá que apenas as colunas em 'df_dictionario' que têm
+# um nome correspondente em 'formulas_map_df_para_join' recebam a descrição.
+# Colunas sem correspondência terão NA em 'Descricao_do_Mapa'.
+df_dictionario <- df_dictionario %>%
+  left_join(formulas_map_df_para_join, by = "Coluna") %>%
+  
+  # Opcional: Renomear a coluna de descrição para 'Descricao' (ou o nome que preferir)
+  rename(Descricao = Descricao_do_Mapa)
+
+
+```
+
+```{r exportar}
+
+library(writexl)
+# Defina o nome do arquivo Excel de saída
+output_excel_file <- here("clean_data", "BasedeDados25jul2025-3.xlsx")
+
+
+list_of_dataframes <- list(
+  Dados_DF = df,
+  Dicionario_DF = df_dictionario
+)
+
+# Exporte a lista de dataframes para o arquivo Excel
+write_xlsx(list_of_dataframes, path = output_excel_file)
+
+cat("Os dataframes 'df' e 'df_dictionario' foram exportados para o arquivo:", output_excel_file, "\n")
+cat("Verifique as abas 'Dados_DF' e 'Dicionario_DF' no arquivo Excel.\n")
+```
